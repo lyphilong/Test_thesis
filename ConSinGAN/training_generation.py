@@ -1,4 +1,4 @@
-import os
+﻿import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -27,6 +27,8 @@ def train(opt):
     real_b = functions.adjust_scales2image(real, opt)
     reals_b = functions.create_reals_pyramid(real, opt)
     
+    #Cần làm cho kích thước của reals_a và reals_b nó bằng nhau
+
     print("Training on image pyramid: {}".format([r.shape for r in reals]))
     print("")
 
@@ -59,9 +61,11 @@ def train(opt):
             generator_b.init_next_stage()
 
         writer = SummaryWriter(log_dir=opt.outf)
-        fixed_noise, noise_amp, generator, d_curr_a, d_curr_b = train_single_scale(d_curr_a, d_curr_b, generator_a, generator_b, reals, fixed_noise, noise_amp, opt, scale_num, writer)
+        fixed_noise_a, fixed_noise_b, noise_amp_a,noise_amp_b, generator_a, generator_b, d_curr_a, d_curr_b = train_single_scale(d_curr_a, d_curr_b, 
+                                                              generator_a, generator_b, reals_a, reals_b, fixed_noise_a, fixed_noise_b, noise_amp_a,noise_amp_b, opt, scale_num, writer)
 
-        torch.save(fixed_noise, '%s/fixed_noise.pth' % (opt.out_))
+        torch.save(fixed_noise_a, '%s/fixed_noise_a.pth' % (opt.out_))
+        torch.save(fixed_noise_b, '%s/fixed_noise_b.pth' % (opt.out_))
         torch.save(generator_a, '%s/G_a.pth' % (opt.out_))
         torch.save(generator_b, '%s/G_b.pth' % (opt.out_))
         torch.save(reals, '%s/reals.pth' % (opt.out_))
@@ -72,8 +76,8 @@ def train(opt):
     return
 
 
-def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_noise, noise_amp, opt, depth, writer):
-    reals_shapes = [real.shape for real in reals]
+def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_noise_a,fixed_noise_b, noise_amp_a,noise_amp_b, opt, depth, writer):
+    reals_shapes = [real.shape for real in reals_a]
     real_a = reals_a[depth]
     real_b = reals_b[depth]
 
@@ -138,7 +142,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
 
         # noise_amp_a
         noise_amp_a.append(0)
-        z_reconstruction_a = netG_a(fixed_noise, reals_shapes, noise_amp_a)      
+        z_reconstruction_a = netG_a(fixed_noise_a, reals_shapes, noise_amp_a)      
 
         rec_loss_a = criterion(z_reconstruction_a, real_a)
         RMSE_a = torch.sqrt(rec_loss_a).detach()
@@ -147,7 +151,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
 
         # noise_amp_b
         noise_amp_b.append(0)
-        z_reconstruction_b = netG_b(fixed_noise, reals_shapes, noise_amp_b)
+        z_reconstruction_b = netG_b(fixed_noise_b, reals_shapes, noise_amp_b)
 
         rec_loss_b = criterion(z_reconstruction_b, real_b)
         RMSE_b = torch.sqrt(rec_loss_b).detach()
@@ -238,10 +242,10 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
 
         if alpha != 0:
             rec_loss = nn.MSELoss()
-            rec_a = netG(fixed_noise, reals_shapes, noise_amp) #xem lai
+            rec_a = netG(fixed_noise_a, reals_shapes_a, noise_amp_a) #xem lai
             rec_loss_a = alpha * loss(rec_a, real_a)
 
-            rec_b = 
+            rec_b = netG_b(fixed_noise_b, reals_shapes_b, noise_amp_b)
             rec_loss_b = alpha * loss(rec_b, real_b)
         else:
             rec_loss_a = 0
@@ -287,7 +291,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         # break
 
     functions.save_networks(netG, netD, z_opt, opt)
-    return fixed_noise, noise_amp, netG, netD
+    return fixed_noise_a, fixed_noise_b, noise_amp_a, noise_amp_b, netG_a, netG_b, netD_a, netD_b
 
 
 def generate_samples(netG, opt, depth, noise_amp, writer, reals, iter, n=25):
