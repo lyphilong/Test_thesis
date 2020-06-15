@@ -20,16 +20,18 @@ def train(opt):
     print("\t non-linearity: {}".format(opt.activation))
 
     real_a = functions.read_image_a(opt)
-    real_a = functions.adjust_scales2image(real, opt) #Caculate size image of first scale
-    reals_a = functions.create_reals_pyramid(real, opt)
+    real_a = functions.adjust_scales2image(real_a, opt) #Caculate size image of first scale
+    reals_a = functions.create_reals_pyramid(real_a, opt)
 
-    real_b = functions.read_image(opt)
-    real_b = functions.adjust_scales2image(real, opt)
-    reals_b = functions.create_reals_pyramid(real, opt)
+    real_b = functions.read_image_b(opt)
+    real_b = functions.adjust_scales2image(real_b, opt)
+    reals_b = functions.create_reals_pyramid(real_b, opt)
     
-    #Cần làm cho kích thước của reals_a và reals_b nó bằng nhau
+    #Cáº§n lÃ m cho kÃ­ch thÆ°á»›c cá»§a reals_a vÃ  reals_b nÃ³ báº±ng nhau
 
-    print("Training on image pyramid: {}".format([r.shape for r in reals]))
+    print("Training on image pyramid: {}".format([r.shape for r in reals_a]))
+    print("Training on image pyramid: {}".format([r.shape for r in reals_b]))
+
     print("")
 
     #Add generator A
@@ -50,7 +52,9 @@ def train(opt):
         except OSError:
                 print(OSError)
                 pass
-        functions.save_image('{}/real_scale.jpg'.format(opt.outf), reals[scale_num])
+        functions.save_image('{}/real_a_scale.jpg'.format(opt.outf), reals_a[scale_num])
+        functions.save_image('{}/real_b_scale.jpg'.format(opt.outf), reals_b[scale_num])
+
 
         d_curr_a = init_D(opt)
         d_curr_b = init_D(opt)
@@ -81,7 +85,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
     real_a = reals_a[depth]
     real_b = reals_b[depth]
 
-    # Hai sieu tham so cua loss rec và cycle
+    # Hai sieu tham so cua loss rec vÃ  cycle
     alpha = opt.alpha
     beta = opt.beta
 
@@ -90,7 +94,8 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
     ###########################
     if depth == 0:
         if opt.train_mode == "generation" or opt.train_mode == "retarget":
-            z_opt = reals[0]
+            z_opt_a = reals_a[0]
+            z_opt_b = reals_b[0]
         elif opt.train_mode == "animation":
             z_opt = functions.generate_noise([opt.nc_im, reals_shapes[depth][2], reals_shapes[depth][3]],
                                              device=opt.device).detach()
@@ -103,33 +108,48 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         else:
             z_opt = functions.generate_noise([opt.nfc, reals_shapes[depth][2], reals_shapes[depth][3]],
                                               device=opt.device).detach()
-    fixed_noise.append(z_opt.detach())
+    fixed_noise_a.append(z_opt_a.detach())
+    fixed_noise_b.append(z_opt_b.detach())
 
     ############################
     # define optimizers, learning rate schedulers, and learning rates for lower stages
     ###########################
     # setup optimizers for D
-    optimizerD = optim.Adam(netD.parameters(), lr=opt.lr_d, betas=(opt.beta1, 0.999))
+    optimizerD_a = optim.Adam(netD_a.parameters(), lr=opt.lr_d, betas=(opt.beta1, 0.999))
+    optimizerD_b = optim.Adam(netD_b.parameters(), lr=opt.lr_d, betas=(opt.beta1, 0.999))
 
     # setup optimizers for G
     # remove gradients from stages that are not trained
-    for block in netG.body[:-opt.train_depth]:
+    for block in netG_a.body[:-opt.train_depth]:
+        for param in block.parameters():
+            param.requires_grad = False
+
+    for block in netG_b.body[:-opt.train_depth]:
         for param in block.parameters():
             param.requires_grad = False
 
     # set different learning rate for lower stages
-    parameter_list = [{"params": block.parameters(), "lr": opt.lr_g * (opt.lr_scale**(len(netG.body[-opt.train_depth:])-1-idx))}
-               for idx, block in enumerate(netG.body[-opt.train_depth:])]
+    parameter_list_a = [{"params": block.parameters(), "lr": opt.lr_g * (opt.lr_scale**(len(netG_a.body[-opt.train_depth:])-1-idx))}
+               for idx, block in enumerate(netG_a.body[-opt.train_depth:])]
+
+    parameter_list_b = [{"params": block.parameters(), "lr": opt.lr_g * (opt.lr_scale**(len(netG_b.body[-opt.train_depth:])-1-idx))}
+               for idx, block in enumerate(netG_b.body[-opt.train_depth:])]
+
 
     # add parameters of head and tail to training
     if depth - opt.train_depth < 0:
-        parameter_list += [{"params": netG.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
-    parameter_list += [{"params": netG.tail.parameters(), "lr": opt.lr_g}]
-    optimizerG = optim.Adam(parameter_list, lr=opt.lr_g, betas=(opt.beta1, 0.999))
+        parameter_list_a += [{"params": netG_a.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
+        parameter_list_b += [{"params": netG_b.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
+    parameter_list_a += [{"params": netG_a.tail.parameters(), "lr": opt.lr_g}]
+    parameter_list_b += [{"params": netG_b.tail.parameters(), "lr": opt.lr_g}]
+    optimizerG_a = optim.Adam(parameter_list_a, lr=opt.lr_g, betas=(opt.beta1, 0.999))
+    optimizerG_b = optim.Adam(parameter_list_b, lr=opt.lr_g, betas=(opt.beta1, 0.999))
 
     # define learning rate schedules
-    schedulerD = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerD, milestones=[0.8*opt.niter], gamma=opt.gamma)
-    schedulerG = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerG, milestones=[0.8*opt.niter], gamma=opt.gamma)
+    schedulerD_a = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerD_a, milestones=[0.8*opt.niter], gamma=opt.gamma)
+    schedulerD_b = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerD_b, milestones=[0.8*opt.niter], gamma=opt.gamma)
+    schedulerG_a = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerG_a, milestones=[0.8*opt.niter], gamma=opt.gamma)
+    schedulerG_b = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerG_b, milestones=[0.8*opt.niter], gamma=opt.gamma)
 
     ############################
     # calculate noise_amp
@@ -146,7 +166,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
 
         rec_loss_a = criterion(z_reconstruction_a, real_a)
         RMSE_a = torch.sqrt(rec_loss_a).detach()
-        _noise_amp_a = opt.noise_amp_init * RMSE_a
+        _noise_amp_a = opt.noise_amp_init_a * RMSE_a
         noise_amp_a[-1] = _noise_amp_a
 
         # noise_amp_b
@@ -155,7 +175,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
 
         rec_loss_b = criterion(z_reconstruction_b, real_b)
         RMSE_b = torch.sqrt(rec_loss_b).detach()
-        _noise_amp_b = opt.noise_amp_init * RMSE_b
+        _noise_amp_b = opt.noise_amp_init_b * RMSE_b
         noise_amp_b[-1] = _noise_amp_b
         
     # start training
@@ -185,11 +205,12 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
             # train with fake
             if j == opt.Dsteps - 1:
                 fake_a = netG_a(noise, reals_shapes, noise_amp_a)
-                mix_g_a = netG_a()
+                
             else:
                 with torch.no_grad():
                     fake_a = netG_a(noise, reals_shapes, noise_amp_a)
-
+                    
+            mix_g_a = netG_a(fake_a, reals_shapes,fake_a)
             output_a = netD_a(mix_g_a.detach())
             output_a2 = netD_a(fake_a.detach())
             errD_fake_a = output_a.mean() + output_a2.mean()

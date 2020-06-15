@@ -249,7 +249,8 @@ def generate_dir2save(opt):
 def post_config(opt):
     # init fixed parameters
     opt.device = torch.device("cpu" if opt.not_cuda else "cuda:{}".format(opt.gpu))
-    opt.noise_amp_init = opt.noise_amp
+    opt.noise_amp_init_a = opt.noise_amp_a
+    opt.noise_amp_init_b = opt.noise_amp_b
     opt.timestamp = datetime.datetime.now(dateutil.tz.tzlocal()).strftime('%Y_%m_%d_%H_%M_%S')
 
     if opt.manualSeed is None:
