@@ -91,7 +91,8 @@ def train(opt):
         torch.save(fixed_noise_b, '%s/fixed_noise_b.pth' % (opt.out_))
         torch.save(generator_a, '%s/G_a.pth' % (opt.out_))
         torch.save(generator_b, '%s/G_b.pth' % (opt.out_))
-        torch.save(reals, '%s/reals.pth' % (opt.out_))
+        torch.save(reals_a, '%s/reals_a.pth' % (opt.out_))
+        torch.save(reals_b, '%s/reals_b.pth' % (opt.out_))
         torch.save(noise_amp_a, '%s/noise_amp_a.pth' % (opt.out_))
         torch.save(noise_amp_b, '%s/noise_amp_b.pth' % (opt.out_))
         del d_curr_a, d_curr_b
@@ -121,10 +122,14 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
                                              device=opt.device).detach()
     else:
         if opt.train_mode == "generation" or opt.train_mode == "animation":
-            z_opt = functions.generate_noise([opt.nfc,
+            z_opt_a = functions.generate_noise([opt.nfc,
                                               reals_shapes[depth][2]+opt.num_layer*2,
                                               reals_shapes[depth][3]+opt.num_layer*2],
                                               device=opt.device)
+            z_opt_b = functions.generate_noise([opt.nfc,
+                                              reals_shapes[depth][2]+opt.num_layer*2,
+                                              reals_shapes[depth][3]+opt.num_layer*2],
+                                              device=opt.device)                                  
         else:
             z_opt = functions.generate_noise([opt.nfc, reals_shapes[depth][2], reals_shapes[depth][3]],
                                               device=opt.device).detach()
@@ -224,8 +229,6 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
             # train with fake
             if j == opt.Dsteps - 1:
                 fake_a = netG_a(noise, reals_shapes, noise_amp_a)
-                
-                
             else:
                 with torch.no_grad():
                     fake_a = netG_a(noise, reals_shapes, noise_amp_a)
@@ -238,27 +241,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
                 fakes_a.append(fake_a)
             
             print("Fakes_a: {}".format([r.shape for r in fakes_a]))
-            mix_g_a = netG_a(fakes_a, reals_shapes,noise_amp_a)
-            mixs_g_a.append(mix_g_a)
-            output_a = netD_a(mix_g_a.detach())
-            output_a2 = netD_a(fake_a.detach())
-            errD_fake_a = output_a.mean() + output_a2.mean()
 
-            gradient_penalty_a = functions.calc_gradient_penalty(netD_a, real_a, mix_g_a, opt.lambda_grad, opt.device)
-            gradient_penalty_a += functions.calc_gradient_penalty(netD_a, real_a, fake_a, opt.lambda_grad, opt.device)
-            errD_total_a = errD_real + errD_fake_a + gradient_penalty_a
-            errD_total_a.backward(retain_graph=True)
-
-            #############################
-            ####      Train D_b      ####
-            #############################
-            netD_b.zero_grad()
-
-            # train with real
-            output = netD_b(real_b)
-            errD_real = -output.mean()
-
-            # train with fake
             if j == opt.Dsteps - 1:
                 fake_b = netG_b(noise, reals_shapes, noise_amp_b)
             else:
@@ -272,8 +255,37 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
                 fakes_b.append(fake_b)
 
             print("Fakes_b: {}".format([r.shape for r in fakes_b]))
+
+            mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
+            #mixs_g_a.append(mix_g_a)
+            output_a = netD_a(mix_g_a.detach())
+            output_a2 = netD_a(fake_a.detach())
+            errD_fake_a = output_a.mean() + output_a2.mean()
+
+            gradient_penalty_a = functions.calc_gradient_penalty(netD_a, real_a, mix_g_a, opt.lambda_grad, opt.device)
+            gradient_penalty_a += functions.calc_gradient_penalty(netD_a, real_a, fake_a, opt.lambda_grad, opt.device)
+            errD_total_a = errD_real + errD_fake_a + gradient_penalty_a
+            errD_total_a.backward(retain_graph=True)
+            
+            if(len(mixs_g_a) == depth):
+                mixs_g_a.append(mix_g_a)
+            else:
+                mixs_g_a.pop(depth)
+                mixs_g_a.append(mix_g_a)
+
+            #############################
+            ####      Train D_b      ####
+            #############################
+            netD_b.zero_grad()
+
+            # train with real
+            output = netD_b(real_b)
+            errD_real = -output.mean()
+
+            # train with fake
+            
             mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a)
-            mixs_g_b.append(mix_g_b)
+            #mixs_g_b.append(mix_g_b)
             output_b = netD_b(mix_g_b.detach()) 
             output_b2 = netD_b(fake_b.detach())
             errD_fake_b = output_b.mean() + output_b2.mean()
@@ -282,6 +294,12 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
             gradient_penalty_b += functions.calc_gradient_penalty(netD_b, real_b, mix_g_b, opt.lambda_grad, opt.device)
             errD_total_b = errD_real + errD_fake_b + gradient_penalty_b
             errD_total_b.backward(retain_graph=True)
+
+            if(len(mixs_g_b) == depth):
+                mixs_g_b.append(mix_g_b)
+            else:
+                mixs_g_b.pop(depth)
+                mixs_g_b.append(mix_g_b)
 
             optimizerD.step()
 
@@ -352,7 +370,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         schedulerG.step()
         # break
 
-    functions.save_networks(netG, netD, z_opt, opt)
+    functions.save_networks(netG_a,netG_b, netD_a,netD_b, z_opt_a,z_opt_b, opt)
     return fixed_noise_a, fixed_noise_b, noise_amp_a, noise_amp_b, netG_a, netG_b, netD_a, netD_b, fakes_a,fakes_b, mixs_g_a, mixs_g_b
 
 

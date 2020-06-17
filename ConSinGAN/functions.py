@@ -176,14 +176,23 @@ def read_image2np_a(opt):
     return x
 
 
-def save_networks(netG, netDs ,z, opt):
-    torch.save(netG.state_dict(), '%s/netG.pth' % (opt.outf))
-    if isinstance(netDs, list):
-        for i, netD in enumerate(netDs):
-            torch.save(netD.state_dict(), '%s/netD_%s.pth' % (opt.outf, str(i)))
+def save_networks(netG_a,netG_b, netD_a,netD_b, z_opt_a,z_opt_b, opt):
+    torch.save(netG_a.state_dict(), '%s/netG_a.pth' % (opt.outf))
+    torch.save(netG_b.state_dict, '%s/netG_b.pth' % (opt.outf))
+    if isinstance(netD_a, list):
+        for i, netD in enumerate(netD_a):
+            torch.save(netD.state_dict(), '%s/netD_a%s.pth' % (opt.outf, str(i)))
     else:
-        torch.save(netDs.state_dict(), '%s/netD.pth' % (opt.outf))
-    torch.save(z, '%s/z_opt.pth' % (opt.outf))
+        torch.save(netD_a.state_dict(), '%s/netD_a.pth' % (opt.outf))
+
+    if isinstance(netD_b, list):
+        for i, netD in enumerate(netD_b):
+            torch.save(netD.state_dict(), '%s/netD_b%s.pth' % (opt.outf, str(i)))
+    else:
+        torch.save(netD_a.state_dict(), '%s/netD_b.pth' % (opt.outf))
+
+    torch.save(z_opt_a, '%s/z_opt_a.pth' % (opt.outf))
+    torch.save(z_opt_b  , '%s/z_opt_b.pth' % (opt.outf))
 
 
 def adjust_scales2image(real_, opt):
