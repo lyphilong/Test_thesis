@@ -85,8 +85,8 @@ def train(opt):
                                                               fakes_a, fakes_b, 
                                                               mixs_g_a,mixs_g_b,
                                                               opt, scale_num)
-        print("Chiều dài fakes a là: ", len(fakes_a))
-        print("Chiều dài fakes b là: ",len(fakes_b))
+        #print("Chiều dài fakes a là: ", len(fakes_a))
+        #print("Chiều dài fakes b là: ",len(fakes_b))
         torch.save(fixed_noise_a, '%s/fixed_noise_a.pth' % (opt.out_))
         torch.save(fixed_noise_b, '%s/fixed_noise_b.pth' % (opt.out_))
         torch.save(generator_a, '%s/G_a.pth' % (opt.out_))
@@ -171,9 +171,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
 
     # define learning rate schedules
     schedulerD = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerD, milestones=[0.8*opt.niter], gamma=opt.gamma)
-    #schedulerD_b = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerD_b, milestones=[0.8*opt.niter], gamma=opt.gamma)
     schedulerG = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerG, milestones=[0.8*opt.niter], gamma=opt.gamma)
-    #schedulerG_b = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerG_b, milestones=[0.8*opt.niter], gamma=opt.gamma)
 
     ############################
     # calculate noise_amp
@@ -205,7 +203,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
     # start training
     _iter = tqdm(range(opt.niter))
     for iter in _iter:
-        #_iter.set_description('stage [{}/{}]:'.format(depth, opt.stop_scale))
+        _iter.set_description('stage [{}/{}]:'.format(depth, opt.stop_scale))
 
         ############################
         # (0) sample noise for unconditional generation
@@ -233,14 +231,18 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
                 with torch.no_grad():
                     fake_a = netG_a(noise, reals_shapes, noise_amp_a)
             
-            #Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ
+            
+            #Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ cho fakes a
             if(len(fakes_a) == depth):
                 fakes_a.append(fake_a)
             else:
                 fakes_a.pop(depth)
                 fakes_a.append(fake_a)
+
+            if (fakes_a[-1].shape[2] != noise[-1].shape[2] or fakes_a[-1].shape[3] != noise[-1].shape[3]):
+                fakes_a[-1] = torch.nn.functional.interpolate(fakes_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+                     
             
-            print("Fakes_a: {}".format([r.shape for r in fakes_a]))
 
             if j == opt.Dsteps - 1:
                 fake_b = netG_b(noise, reals_shapes, noise_amp_b)
@@ -248,15 +250,23 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
                 with torch.no_grad():
                     fake_b = netG_b(noise, reals_shapes, noise_amp_b)
 
+
+            #Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ cho fakes a
             if(len(fakes_b) == depth):
                 fakes_b.append(fake_b)
             else:
                 fakes_b.pop(depth)
                 fakes_b.append(fake_b)
 
-            print("Fakes_b: {}".format([r.shape for r in fakes_b]))
+            if (fakes_b[-1].shape[2] != noise[-1].shape[2] or fakes_b[-1].shape[3] != noise[-1].shape[3]):
+                fakes_b[-1] = torch.nn.functional.interpolate(fakes_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
 
-            mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
+            if(depth !=0):
+                mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b, is_noise = True)
+            else:
+                mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
+
+            #mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
             #mixs_g_a.append(mix_g_a)
             output_a = netD_a(mix_g_a.detach())
             output_a2 = netD_a(fake_a.detach())
@@ -267,11 +277,15 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
             errD_total_a = errD_real + errD_fake_a + gradient_penalty_a
             errD_total_a.backward(retain_graph=True)
             
+            # Tại mỗi scale thì chèn vào mix duy nhất
             if(len(mixs_g_a) == depth):
                 mixs_g_a.append(mix_g_a)
             else:
                 mixs_g_a.pop(depth)
                 mixs_g_a.append(mix_g_a)
+
+            if (mixs_g_a[-1].shape[2] != noise[-1].shape[2] or mixs_g_a[-1].shape[3] != noise[-1].shape[3]):
+                mixs_g_a[-1] = torch.nn.functional.interpolate(mixs_g_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
 
             #############################
             ####      Train D_b      ####
@@ -283,8 +297,12 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
             errD_real = -output.mean()
 
             # train with fake
+            if(depth !=0):
+                mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a,is_noise = True)
+            else:
+                mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a)
+
             
-            mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a)
             #mixs_g_b.append(mix_g_b)
             output_b = netD_b(mix_g_b.detach()) 
             output_b2 = netD_b(fake_b.detach())
@@ -295,11 +313,15 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
             errD_total_b = errD_real + errD_fake_b + gradient_penalty_b
             errD_total_b.backward(retain_graph=True)
 
+            # Tại mỗi scale thì chèn vào mix duy nhất
             if(len(mixs_g_b) == depth):
                 mixs_g_b.append(mix_g_b)
             else:
                 mixs_g_b.pop(depth)
                 mixs_g_b.append(mix_g_b)
+            
+            if (mixs_g_b[-1].shape[2] != noise[-1].shape[2] or mixs_g_b[-1].shape[3] != noise[-1].shape[3]):
+                mixs_g_b[-1] = torch.nn.functional.interpolate(mixs_g_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
 
             optimizerD.step()
 
@@ -317,7 +339,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         output_b2 = netD_a(fake_b)
         errG_b = -output_b.mean() - output_b2.mean()
 
-        print(len(noise_amp_a))
+        #print(len(noise_amp_a))
 
         if alpha != 0:
             rec_loss = nn.MSELoss()
@@ -333,10 +355,14 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         if beta != 0:
             cycle_loss = nn.MSELoss()
             
-            cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a)
-            cycle_loss_a = beta * cycle_loss(cycle_a, fake_a)
+            if (depth != 0):
+                cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a, is_noise =True) #if else chỗ này tai scale thứ 2 trở đi tăng chanel lên 64 
+                cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b,is_noise = True)
+            else:
+                cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a) #if else chỗ này tai scale thứ 2 trở đi tăng chanel lên 64 
+                cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b)        
             
-            cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b)
+            cycle_loss_a = beta * cycle_loss(cycle_a, fake_a)
             cycle_loss_b = beta * cycle_loss(cycle_b, fake_b)
         else:
             cycle_loss_a = 0
@@ -354,8 +380,8 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         ############################
         ####  (3) Log Results   ####
         ############################
-        if iter % 250 == 0 or iter+1 == opt.niter:
-            print(f"[{iter}]/20000 tại scale [depth]")
+        #if iter % 250 == 0 or iter+1 == opt.niter:
+        #    print(f"[{iter}]/20000 tại scale [depth]")
             #writer.add_scalar('Loss/train/D_a/real/{}'.format(j), -errD_real.item(), iter+1)
             #writer.add_scalar('Loss/train/D_a/fake/{}'.format(j), errD_fake.item(), iter+1)
             #writer.add_scalar('Loss/train/D/gradient_penalty/{}'.format(j), gradient_penalty.item(), iter+1)
@@ -369,7 +395,8 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         schedulerD.step()
         schedulerG.step()
         # break
-
+    print("Fakes_a: {}".format([r.shape for r in fakes_a]))
+    print("Fakes_b: {}".format([r.shape for r in fakes_b]))
     functions.save_networks(netG_a,netG_b, netD_a,netD_b, z_opt_a,z_opt_b, opt)
     return fixed_noise_a, fixed_noise_b, noise_amp_a, noise_amp_b, netG_a, netG_b, netD_a, netD_b, fakes_a,fakes_b, mixs_g_a, mixs_g_b
 

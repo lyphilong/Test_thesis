@@ -69,6 +69,8 @@ class GrowingGenerator(nn.Module):
         self.opt = opt
         N = int(opt.nfc)
 
+        self.one_conv = ConvBlock(opt.nc_im, N , 1, opt.padd_size, opt)
+
         self._pad = nn.ZeroPad2d(1)
         self._pad_block = nn.ZeroPad2d(opt.num_layer-1) if opt.train_mode == "generation"\
                                                            or opt.train_mode == "animation" \
@@ -90,7 +92,13 @@ class GrowingGenerator(nn.Module):
     def init_next_stage(self):
         self.body.append(copy.deepcopy(self.body[-1]))
 
-    def forward(self, noise, real_shapes, noise_amp):
+    def forward(self, noise, real_shapes, noise_amp, is_noise = False):
+        if (is_noise):
+            noise[-1] = self.one_conv(noise[-1])
+            #for i in range(1, len(noise)):
+                
+                #print("Kích thước của hình sau khi đi 1x1 conv ", noise[i].shape)
+
         x = self.head(self._pad(noise[0]))
 
         # we do some upsampling for training models for unconditional generation to increase
