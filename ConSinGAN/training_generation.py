@@ -390,6 +390,10 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         if iter % 500 == 0 or iter+1 == opt.niter:
             functions.save_image('{}/fake_sample_a{}.jpg'.format(opt.outf, iter+1), fake_a.detach())
             functions.save_image('{}/reconstruction_a{}.jpg'.format(opt.outf, iter+1), rec_a.detach())
+            functions.save_image('{}/fake_sample_b{}.jpg'.format(opt.outf, iter+1), fake_b.detach())
+            functions.save_image('{}/reconstruction_b{}.jpg'.format(opt.outf, iter+1), rec_b.detach())
+            functions.save_image('{}/b2a_{}.jpg'.format(opt.outf,iter+1),mix_g_a.detach())
+            functions.save_image('{}/a2b_{}.jpg'.format(opt.outf,iter+1),mix_g_b.detach())
            # generate_samples(netG_a, opt, depth, noise_amp, writer, reals, iter+1)
 
         schedulerD.step()
