@@ -222,7 +222,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
             
             # train with real
             output = netD_a(real_a)
-            errD_real = -output.mean()
+            errD_real = -2*output.mean()
 
             # train with fake
             if j == opt.Dsteps - 1:
@@ -294,7 +294,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
 
             # train with real
             output = netD_b(real_b)
-            errD_real = -output.mean()
+            errD_real = -2*output.mean()
 
             # train with fake
             if(depth !=0):
@@ -335,9 +335,9 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
         output_a2 = netD_a(fake_a)
         errG_a = -output_a.mean() - output_a2.mean()
 
-        output_b = netD_a(mix_g_b)
-        output_b2 = netD_a(fake_b)
-        errG_b = -output_b.mean() - output_b2.mean()
+        output_b = netD_b(mix_g_b)
+        output_b2 = netD_b(fake_b)
+        errG_b = (-output_b.mean() - output_b2.mean())
 
         #print(len(noise_amp_a))
 
