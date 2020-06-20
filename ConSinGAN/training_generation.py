@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
+from torchsummary import summary
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
@@ -85,6 +86,7 @@ def train(opt):
                                                               fakes_a, fakes_b, 
                                                               mixs_g_a,mixs_g_b,
                                                               opt, scale_num)
+        model_summary(generator_a)
         #print("Chiều dài fakes a là: ", len(fakes_a))
         #print("Chiều dài fakes b là: ",len(fakes_b))
         torch.save(fixed_noise_a, '%s/fixed_noise_a.pth' % (opt.out_))
@@ -357,7 +359,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, reals_a, reals_b, fixed_n
             
             if (depth != 0):
                 cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a, is_noise =True) #if else chỗ này tai scale thứ 2 trở đi tăng chanel lên 64 
-                cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b,is_noise = True)
+                cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b, is_noise = True)
             else:
                 cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a) #if else chỗ này tai scale thứ 2 trở đi tăng chanel lên 64 
                 cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b)        
@@ -431,6 +433,7 @@ def init_G(opt):
     # generator initialization:
     netG = models.GrowingGenerator(opt).to(opt.device)
     netG.apply(models.weights_init)
+    print(netG)
     # print(netG)
 
     return netG
@@ -439,6 +442,37 @@ def init_D(opt):
     #discriminator initialization:
     netD = models.Discriminator(opt).to(opt.device)
     netD.apply(models.weights_init)
+    
     # print(netD)
 
     return netD
+
+
+def model_summary(model):
+  print("model_summary")
+  print()
+  print("Layer_name"+"\t"*7+"Number of Parameters")
+  print("="*100)
+  model_parameters = [layer for layer in model.parameters() if layer.requires_grad] #Parameter training
+  layer_name = [child for child in model.children()]
+  j = 0
+  total_params = 0
+  print("\t"*10)
+  for i in layer_name:
+    print()
+    param = 0
+    try:
+      bias = (i.bias is not None)
+    except:
+      bias = False  
+    if not bias:
+      param =model_parameters[j].numel()+model_parameters[j+1].numel()
+      j = j+2
+    else:
+      param =model_parameters[j].numel()
+      j = j+1
+    print(str(i)+"\t"*3+str(param))
+    total_params+=param
+  print("="*100)
+  print(f"Total Params:{total_params}")       
+
