@@ -26,12 +26,12 @@ def get_scale_factor(opt):
 # noinspection PyInterpreter
 if __name__ == '__main__':
     parser = get_arguments()
-    parser.add_argument('--input_a', help='input image a for training', required=True)
+    #parser.add_argument('--input_a', help='input image a for training', required=True)
     parser.add_argument('--input_b', help='input image b (target) for training', required=True)
     parser.add_argument('--naive_img', help='naive input image  (harmonization or editing)', default="")
     parser.add_argument('--gpu', type=int, help='which GPU to use', default=0)
     parser.add_argument('--train_mode', default='generation',
-                        choices=['generation', 'retarget', 'harmonization', 'editing', 'animation'],
+                        choices=['generation', 'retarget', 'harmonization', 'editing', 'animation', 'video'],
                         help="generation, retarget, harmonization, editing, animation")
     parser.add_argument('--lr_scale', type=float, help='scaling of learning rate for lower stages', default=0.1)
     parser.add_argument('--train_stages', type=int, help='how many stages to use for training', default=6)
@@ -66,6 +66,12 @@ if __name__ == '__main__':
 
     if torch.cuda.is_available():
         torch.cuda.set_device(opt.gpu)
+		
+	if opt.train_mode == 'video':
+		parser.add_argument('--num_images', type=int, default=1)
+		parser.add_argument('--vid_ext', default='.jpg', help='ext for video frames')
+		parser.add_argument('--bs', type=int, default=1)
+		parser.add_argument('--video_dir', help='input image path', required=True)
 
     if opt.train_mode == "generation" or opt.train_mode == "retarget" or opt.train_mode == "animation":
         if opt.train_mode == "animation":
@@ -86,6 +92,8 @@ if __name__ == '__main__':
                 print("Image for harmonization/editing not found: {}".format(opt.naive_img))
                 exit()
         from ConSinGAN.training_harmonization_editing import *
+	elif opt.train_mode == "video":
+		from ConSinGAN.training_video import *
 
     dir2save = functions.generate_dir2save(opt)
 
