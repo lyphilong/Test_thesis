@@ -9,10 +9,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import DataLoader
+import torch.utils.data as Data
 
 import ConSinGAN.functions as functions
 import ConSinGAN.models as models
 import ConSinGAN.imresize as imresize
+
 
 class Video_dataset(Data.Dataset):
     """Faces."""
@@ -23,23 +25,29 @@ class Video_dataset(Data.Dataset):
         self.ext = ext
 
         self.data = {}
-		
-		for j in range(self.size):
-			img_name = os.path.join(self.root_dir, str(j) + self.ext)
-			image = functions.read_image_dir(img_name,opt)
-			image = functions.adjust_scales2image(image, opt)
-			imgs = functions.create_reals_pyramid(image, opt)
-			self.data[j] = imgs
+
+        for j in range(self.size):
+            img_name = os.path.join(self.root_dir, str(j) + self.ext)
+            image = functions.read_image_dir(img_name, opt)
+            image = functions.adjust_scales2image(image, opt)
+            imgs = functions.create_reals_pyramid(image, opt)
+
+            for i in range(len(imgs)): 
+                imgs[i] = imgs[i].view(3,imgs[i].shape[2],imgs[i].shape[3])
+
+            self.data[j] = imgs
 
     def __len__(self):
         return self.size
 
     def __getitem__(self, idx):
         return tuple(self.data[idx])
-		
-	def __getimageorg__(self):
-		img_name = os.path.join(self.root_dir, '0' + self.ext)
-		return image = functions.read_image_dir(img_name,opt)
+
+    def __getimageorg__(self,opt):
+        img_name = os.path.join(self.root_dir, '0' + self.ext)
+        image = functions.read_image_dir(img_name, opt)
+
+        return image
 
 def train(opt):
     print("Training model with the following parameters:")
@@ -47,18 +55,17 @@ def train(opt):
     print("\t number of concurrently trained stages: {}".format(opt.train_depth))
     print("\t learning rate scaling: {}".format(opt.lr_scale))
     print("\t non-linearity: {}".format(opt.activation))
-	
-	
-	dataset_a = Video_dataset(opt.video_dir, opt.num_image, opt.vid_ext, opt)
-	data_loader_a = DataLoader(dataset_a, shuffle=True, batch_size=opt.bs)
-	
-	real_img_org = Video_dataset.__getimageorg__()
-	w = real_img_org.shape[2]
-	h = real_img_org.shape[3]
-	
+    
+    dataset_a = Video_dataset(opt.video_dir, opt.num_images, opt.vid_ext, opt)
+    data_loader_a = DataLoader(dataset_a, shuffle=True, batch_size=opt.bs)
+    #print(dataset_a.shape)
+    real_img_org = Video_dataset.__getimageorg__(dataset_a,opt)
+    w = real_img_org.shape[2]
+    h = real_img_org.shape[3]
+    
     real_b = functions.read_image_b(opt)
-	
-	
+    
+    
     real_b = functions.torch2uint8(real_b)
     real_b = imresize.imresize_in(real_b, output_shape=(w,h))
     #real_b_1 = functions.np2torch(real_b,opt)
@@ -138,8 +145,8 @@ def train(opt):
 
 
 def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, fixed_noise_a,fixed_noise_b, noise_amp_a,noise_amp_b, fakes_a,fakes_b, mixs_g_a, mixs_g_b, opt, depth):
-	
-    #reals_shapes = [real.shape for real in reals_a]
+    
+    reals_shapes = [real.shape for real in reals_b]
     #real_a = reals_a[depth]
     real_b = reals_b[depth]
 
@@ -147,280 +154,281 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
     # Hai sieu tham so cua loss rec vÃ  cycle
     alpha = opt.alpha
     beta = opt.beta
-
     
-        
     # start training
-    _iter = tqdm(range(opt.niter))
+    n_iters = int(opt.niter / opt.num_images)
+
+    _iter = tqdm(range(n_iters)) #In tiến trình
     for iter in _iter:
-		_iter.set_description('stage [{}/{}]:'.format(depth, opt.stop_scale))
-		
-		for reals_a in data_loader_a:
-			real_a = reals_a[depth]
-			
-			if iter == 0:
-				############################
-			    # define z_opt for training on reconstruction
-			    ###########################
-			    if depth == 0:
-			        if opt.train_mode == "generation" or opt.train_mode == "retarget":
-			            z_opt_a = reals_a[0]
-			            z_opt_b = reals_b[0]
-			        elif opt.train_mode == "animation":
-			            z_opt = functions.generate_noise([opt.nc_im, reals_shapes[depth][2], reals_shapes[depth][3]],
-			                                             device=opt.device).detach()
-			    else:
-			        if opt.train_mode == "generation" or opt.train_mode == "animation":
-			            z_opt_a = functions.generate_noise([opt.nfc,
-			                                              reals_shapes[depth][2]+opt.num_layer*2,
-			                                              reals_shapes[depth][3]+opt.num_layer*2],
-			                                              device=opt.device)
-			            z_opt_b = functions.generate_noise([opt.nfc,
-			                                              reals_shapes[depth][2]+opt.num_layer*2,
-			                                              reals_shapes[depth][3]+opt.num_layer*2],
-			                                              device=opt.device)                                  
-			        else:
-			            z_opt = functions.generate_noise([opt.nfc, reals_shapes[depth][2], reals_shapes[depth][3]],
-			                                              device=opt.device).detach()
-			    fixed_noise_a.append(z_opt_a.detach())
-			    fixed_noise_b.append(z_opt_b.detach())
-
-			    ############################
-			    # define optimizers, learning rate schedulers, and learning rates for lower stages
-			    ###########################
-			    # setup optimizers for D
-			    optimizerD = optim.Adam(list(netD_a.parameters()) + list(netD_b.parameters()), lr=opt.lr_d, betas=(opt.beta1, 0.999))
-    
-			    # setup optimizers for G
-			    # remove gradients from stages that are not trained
-			    for block in netG_a.body[:-opt.train_depth]:
-			        for param in block.parameters():
-			            param.requires_grad = False
-
-			    for block in netG_b.body[:-opt.train_depth]:
-			        for param in block.parameters():
-			            param.requires_grad = False
-
-			    # set different learning rate for lower stages
-			    parameter_list_a = [{"params": block.parameters(), "lr": opt.lr_g * (opt.lr_scale**(len(netG_a.body[-opt.train_depth:])-1-idx))}
-			               for idx, block in enumerate(netG_a.body[-opt.train_depth:])]
-
-			    parameter_list_b = [{"params": block.parameters(), "lr": opt.lr_g * (opt.lr_scale**(len(netG_b.body[-opt.train_depth:])-1-idx))}
-			               for idx, block in enumerate(netG_b.body[-opt.train_depth:])]
-
-
-			    # add parameters of head and tail to training
-			    if depth - opt.train_depth < 0:
-			        parameter_list_a += [{"params": netG_a.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
-			        parameter_list_b += [{"params": netG_b.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
-			    parameter_list_a += [{"params": netG_a.tail.parameters(), "lr": opt.lr_g}]
-			    parameter_list_b += [{"params": netG_b.tail.parameters(), "lr": opt.lr_g}]
-			    optimizerG = optim.Adam(parameter_list_a + parameter_list_b, lr=opt.lr_g, betas=(opt.beta1, 0.999))
-			    #optimizerG_b = optim.Adam(parameter_list_b, lr=opt.lr_g, betas=(opt.beta1, 0.999))
-
-			    # define learning rate schedules
-			    schedulerD = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerD, milestones=[0.8*opt.niter], gamma=opt.gamma)
-			    schedulerG = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerG, milestones=[0.8*opt.niter], gamma=opt.gamma)
-
-			    ############################
-			    # calculate noise_amp
-			    ###########################
-			    if depth == 0:
-			        noise_amp_a.append(1)
-			        noise_amp_b.append(1)
-			    else:
-			        criterion = nn.MSELoss()
-
-			        # noise_amp_a
-			        noise_amp_a.append(0)
-			        z_reconstruction_a = netG_a(fixed_noise_a, reals_shapes, noise_amp_a)      
-
-			        rec_loss_a = criterion(z_reconstruction_a, real_a)
-			        RMSE_a = torch.sqrt(rec_loss_a).detach()
-			        _noise_amp_a = opt.noise_amp_init_a * RMSE_a
-			        noise_amp_a[-1] = _noise_amp_a
-
-			        # noise_amp_b
-			        noise_amp_b.append(0)
-			        z_reconstruction_b = netG_b(fixed_noise_b, reals_shapes, noise_amp_b)
-
-			        rec_loss_b = criterion(z_reconstruction_b, real_b)
-			        RMSE_b = torch.sqrt(rec_loss_b).detach()
-			        _noise_amp_b = opt.noise_amp_init_b * RMSE_b
-			        noise_amp_b[-1] = _noise_amp_b
-			
+        _iter.set_description('stage [{}/{}]:'.format(depth, opt.stop_scale))
         
-			############################
-			# (0) sample noise for unconditional generation
-			###########################
-			noise = functions.sample_random_noise(depth, reals_shapes, opt)
-
-			############################
-			# (1) Update D network: maximize D(x) + D(G(z))
-			###########################
-			for j in range(opt.Dsteps):
-				#############################
-				####      Train D_a      ####
-				#############################
-
-				netD_a.zero_grad()
+        for reals_a in data_loader_a:
+            real_a = reals_a[depth]
+            #print(real_a.shape)
             
-				# train with real
-				output = netD_a(real_a)
-				errD_real = -2*output.mean()
+            if iter == 0:
+                ############################
+                # define z_opt for training on reconstruction
+                ###########################
+                if depth == 0:
+                    if opt.train_mode == "generation" or opt.train_mode == "retarget"  or opt.train_mode == "video":
+                        z_opt_a = reals_a[0]
+                        z_opt_b = reals_b[0]
+                    elif opt.train_mode == "animation":
+                        z_opt = functions.generate_noise([opt.nc_im, reals_shapes[depth][2], reals_shapes[depth][3]],
+                                                         device=opt.device).detach()
+                else:
+                    if opt.train_mode == "generation" or opt.train_mode == "animation" or opt.train_mode == "video":
+                        z_opt_a = functions.generate_noise([opt.nfc,
+                                                          reals_shapes[depth][2]+opt.num_layer*2,
+                                                          reals_shapes[depth][3]+opt.num_layer*2],
+                                                          device=opt.device)
+                        z_opt_b = functions.generate_noise([opt.nfc,
+                                                          reals_shapes[depth][2]+opt.num_layer*2,
+                                                          reals_shapes[depth][3]+opt.num_layer*2],
+                                                          device=opt.device)                                  
+                    else:
+                        z_opt = functions.generate_noise2([opt.bs,opt.nfc, reals_shapes[depth][2], reals_shapes[depth][3]],
+                                                          device=opt.device).detach()
+                fixed_noise_a.append(z_opt_a.detach())
+                fixed_noise_b.append(z_opt_b.detach())
 
-				# train with fake
-				if j == opt.Dsteps - 1:
-					fake_a = netG_a(noise, reals_shapes, noise_amp_a)
-				else:
-					with torch.no_grad():
-						fake_a = netG_a(noise, reals_shapes, noise_amp_a)
+                ############################
+                # define optimizers, learning rate schedulers, and learning rates for lower stages
+                ###########################
+                # setup optimizers for D
+                optimizerD = optim.Adam(list(netD_a.parameters()) + list(netD_b.parameters()), lr=opt.lr_d, betas=(opt.beta1, 0.999))
+    
+                # setup optimizers for G
+                # remove gradients from stages that are not trained
+                for block in netG_a.body[:-opt.train_depth]:
+                    for param in block.parameters():
+                        param.requires_grad = False
+
+                for block in netG_b.body[:-opt.train_depth]:
+                    for param in block.parameters():
+                        param.requires_grad = False
+
+                # set different learning rate for lower stages
+                parameter_list_a = [{"params": block.parameters(), "lr": opt.lr_g * (opt.lr_scale**(len(netG_a.body[-opt.train_depth:])-1-idx))}
+                           for idx, block in enumerate(netG_a.body[-opt.train_depth:])]
+
+                parameter_list_b = [{"params": block.parameters(), "lr": opt.lr_g * (opt.lr_scale**(len(netG_b.body[-opt.train_depth:])-1-idx))}
+                           for idx, block in enumerate(netG_b.body[-opt.train_depth:])]
+
+
+                # add parameters of head and tail to training
+                if depth - opt.train_depth < 0:
+                    parameter_list_a += [{"params": netG_a.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
+                    parameter_list_b += [{"params": netG_b.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
+                parameter_list_a += [{"params": netG_a.tail.parameters(), "lr": opt.lr_g}]
+                parameter_list_b += [{"params": netG_b.tail.parameters(), "lr": opt.lr_g}]
+                optimizerG = optim.Adam(parameter_list_a + parameter_list_b, lr=opt.lr_g, betas=(opt.beta1, 0.999))
+                #optimizerG_b = optim.Adam(parameter_list_b, lr=opt.lr_g, betas=(opt.beta1, 0.999))
+
+                # define learning rate schedules
+                schedulerD = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerD, milestones=[0.8*opt.niter], gamma=opt.gamma)
+                schedulerG = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizerG, milestones=[0.8*opt.niter], gamma=opt.gamma)
+
+                ############################
+                # calculate noise_amp
+                ###########################
+                if depth == 0:
+                    noise_amp_a.append(1)
+                    noise_amp_b.append(1)
+                else:
+                    criterion = nn.MSELoss()
+
+                    # noise_amp_a
+                    noise_amp_a.append(0)
+                    z_reconstruction_a = netG_a(fixed_noise_a, reals_shapes, noise_amp_a)      
+
+                    rec_loss_a = criterion(z_reconstruction_a, real_a)
+                    RMSE_a = torch.sqrt(rec_loss_a).detach()
+                    _noise_amp_a = opt.noise_amp_init_a * RMSE_a
+                    noise_amp_a[-1] = _noise_amp_a
+
+                    # noise_amp_b
+                    noise_amp_b.append(0)
+                    z_reconstruction_b = netG_b(fixed_noise_b, reals_shapes, noise_amp_b)
+
+                    rec_loss_b = criterion(z_reconstruction_b, real_b)
+                    RMSE_b = torch.sqrt(rec_loss_b).detach()
+                    _noise_amp_b = opt.noise_amp_init_b * RMSE_b
+                    noise_amp_b[-1] = _noise_amp_b
+            
+        
+            ############################
+            # (0) sample noise for unconditional generation
+            ###########################
+            noise = functions.sample_random_noise(depth, reals_shapes, opt)
+
+            ############################
+            # (1) Update D network: maximize D(x) + D(G(z))
+            ###########################
+            for j in range(opt.Dsteps):
+                #############################
+                ####      Train D_a      ####
+                #############################
+
+                netD_a.zero_grad()
+            
+                # train with real
+                output = netD_a(real_a)
+                errD_real = -2*output.mean()
+
+                # train with fake
+                if j == opt.Dsteps - 1:
+                    fake_a = netG_a(noise, reals_shapes, noise_amp_a)
+                else:
+                    with torch.no_grad():
+                        fake_a = netG_a(noise, reals_shapes, noise_amp_a)
             
             
-				#Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ cho fakes a
-				if(len(fakes_a) == depth):
-					fakes_a.append(fake_a)
-				else:
-					fakes_a.pop(depth)
-					fakes_a.append(fake_a)
+                #Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ cho fakes a
+                if(len(fakes_a) == depth):
+                    fakes_a.append(fake_a)
+                else:
+                    fakes_a.pop(depth)
+                    fakes_a.append(fake_a)
 
-				if (fakes_a[-1].shape[2] != noise[-1].shape[2] or fakes_a[-1].shape[3] != noise[-1].shape[3]):
-					fakes_a[-1] = torch.nn.functional.interpolate(fakes_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+                if (fakes_a[-1].shape[2] != noise[-1].shape[2] or fakes_a[-1].shape[3] != noise[-1].shape[3]):
+                    fakes_a[-1] = torch.nn.functional.interpolate(fakes_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
                      
             
 
-				if j == opt.Dsteps - 1:
-					fake_b = netG_b(noise, reals_shapes, noise_amp_b)
-				else:
-					with torch.no_grad():
-						fake_b = netG_b(noise, reals_shapes, noise_amp_b)
+                if j == opt.Dsteps - 1:
+                    fake_b = netG_b(noise, reals_shapes, noise_amp_b)
+                else:
+                    with torch.no_grad():
+                        fake_b = netG_b(noise, reals_shapes, noise_amp_b)
 
 
-				#Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ cho fakes a
-				if(len(fakes_b) == depth):
-					fakes_b.append(fake_b)
-				else:
-					fakes_b.pop(depth)
-					fakes_b.append(fake_b)
+                #Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ cho fakes a
+                if(len(fakes_b) == depth):
+                    fakes_b.append(fake_b)
+                else:
+                    fakes_b.pop(depth)
+                    fakes_b.append(fake_b)
 
-				if (fakes_b[-1].shape[2] != noise[-1].shape[2] or fakes_b[-1].shape[3] != noise[-1].shape[3]):
-					fakes_b[-1] = torch.nn.functional.interpolate(fakes_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+                if (fakes_b[-1].shape[2] != noise[-1].shape[2] or fakes_b[-1].shape[3] != noise[-1].shape[3]):
+                    fakes_b[-1] = torch.nn.functional.interpolate(fakes_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
 
-				if(depth !=0):
-					mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b, is_noise = True)
-				else:
-					mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
+                if(depth !=0):
+                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b, is_noise = True)
+                else:
+                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
 
-				#mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
-				#mixs_g_a.append(mix_g_a)
-				output_a = netD_a(mix_g_a.detach())
-				output_a2 = netD_a(fake_a.detach())
-				errD_fake_a = output_a.mean() + output_a2.mean()
+                #mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
+                #mixs_g_a.append(mix_g_a)
+                output_a = netD_a(mix_g_a.detach())
+                output_a2 = netD_a(fake_a.detach())
+                errD_fake_a = output_a.mean() + output_a2.mean()
 
-				gradient_penalty_a = functions.calc_gradient_penalty(netD_a, real_a, mix_g_a, opt.lambda_grad, opt.device)
-				gradient_penalty_a += functions.calc_gradient_penalty(netD_a, real_a, fake_a, opt.lambda_grad, opt.device)
-				errD_total_a = errD_real + errD_fake_a + gradient_penalty_a
-				errD_total_a.backward(retain_graph=True)
+                gradient_penalty_a = functions.calc_gradient_penalty(netD_a, real_a, mix_g_a, opt.lambda_grad, opt.device)
+                gradient_penalty_a += functions.calc_gradient_penalty(netD_a, real_a, fake_a, opt.lambda_grad, opt.device)
+                errD_total_a = errD_real + errD_fake_a + gradient_penalty_a
+                errD_total_a.backward(retain_graph=True)
             
-				# Tại mỗi scale thì chèn vào mix duy nhất
-				if(len(mixs_g_a) == depth):
-					mixs_g_a.append(mix_g_a)
-				else:
-					mixs_g_a.pop(depth)
-					mixs_g_a.append(mix_g_a)
+                # Tại mỗi scale thì chèn vào mix duy nhất
+                if(len(mixs_g_a) == depth):
+                    mixs_g_a.append(mix_g_a)
+                else:
+                    mixs_g_a.pop(depth)
+                    mixs_g_a.append(mix_g_a)
 
-				if (mixs_g_a[-1].shape[2] != noise[-1].shape[2] or mixs_g_a[-1].shape[3] != noise[-1].shape[3]):
-					mixs_g_a[-1] = torch.nn.functional.interpolate(mixs_g_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+                if (mixs_g_a[-1].shape[2] != noise[-1].shape[2] or mixs_g_a[-1].shape[3] != noise[-1].shape[3]):
+                    mixs_g_a[-1] = torch.nn.functional.interpolate(mixs_g_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
 
-				#############################
-				####      Train D_b      ####
-				#############################
-				netD_b.zero_grad()
+                #############################
+                ####      Train D_b      ####
+                #############################
+                netD_b.zero_grad()
 
-				# train with real
-				output = netD_b(real_b)
-				errD_real = -2*output.mean()
+                # train with real
+                output = netD_b(real_b)
+                errD_real = -2*output.mean()
 
-				# train with fake
-				if(depth !=0):
-					mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a,is_noise = True)
-				else:
-					mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a)
+                # train with fake
+                if(depth !=0):
+                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a,is_noise = True)
+                else:
+                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a)
 
             
-				#mixs_g_b.append(mix_g_b)
-				output_b = netD_b(mix_g_b.detach()) 
-				output_b2 = netD_b(fake_b.detach())
-				errD_fake_b = output_b.mean() + output_b2.mean()
+                #mixs_g_b.append(mix_g_b)
+                output_b = netD_b(mix_g_b.detach()) 
+                output_b2 = netD_b(fake_b.detach())
+                errD_fake_b = output_b.mean() + output_b2.mean()
 
-				gradient_penalty_b = functions.calc_gradient_penalty(netD_b, real_b, fake_b, opt.lambda_grad, opt.device)
-				gradient_penalty_b += functions.calc_gradient_penalty(netD_b, real_b, mix_g_b, opt.lambda_grad, opt.device)
-				errD_total_b = errD_real + errD_fake_b + gradient_penalty_b
-				errD_total_b.backward(retain_graph=True)
+                gradient_penalty_b = functions.calc_gradient_penalty(netD_b, real_b, fake_b, opt.lambda_grad, opt.device)
+                gradient_penalty_b += functions.calc_gradient_penalty(netD_b, real_b, mix_g_b, opt.lambda_grad, opt.device)
+                errD_total_b = errD_real + errD_fake_b + gradient_penalty_b
+                errD_total_b.backward(retain_graph=True)
 
-				# Tại mỗi scale thì chèn vào mix duy nhất
-				if(len(mixs_g_b) == depth):
-					mixs_g_b.append(mix_g_b)
-				else:
-					mixs_g_b.pop(depth)
-					mixs_g_b.append(mix_g_b)
+                # Tại mỗi scale thì chèn vào mix duy nhất
+                if(len(mixs_g_b) == depth):
+                    mixs_g_b.append(mix_g_b)
+                else:
+                    mixs_g_b.pop(depth)
+                    mixs_g_b.append(mix_g_b)
             
-				if (mixs_g_b[-1].shape[2] != noise[-1].shape[2] or mixs_g_b[-1].shape[3] != noise[-1].shape[3]):
-					mixs_g_b[-1] = torch.nn.functional.interpolate(mixs_g_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
-	
-				optimizerD.step()
+                if (mixs_g_b[-1].shape[2] != noise[-1].shape[2] or mixs_g_b[-1].shape[3] != noise[-1].shape[3]):
+                    mixs_g_b[-1] = torch.nn.functional.interpolate(mixs_g_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+    
+                optimizerD.step()
 
-			############################
-			# (2) Update G network: maximize D(G(z))
-			###########################
-			netG_a.zero_grad()
-			netG_b.zero_grad()
+            ############################
+            # (2) Update G network: maximize D(G(z))
+            ###########################
+            netG_a.zero_grad()
+            netG_b.zero_grad()
         
-			output_a = netD_a(mix_g_a)
-			output_a2 = netD_a(fake_a)
-			errG_a = -output_a.mean() - output_a2.mean()
+            output_a = netD_a(mix_g_a)
+            output_a2 = netD_a(fake_a)
+            errG_a = -output_a.mean() - output_a2.mean()
 
-			output_b = netD_b(mix_g_b)
-			output_b2 = netD_b(fake_b)
-			errG_b = (-output_b.mean() - output_b2.mean())
+            output_b = netD_b(mix_g_b)
+            output_b2 = netD_b(fake_b)
+            errG_b = (-output_b.mean() - output_b2.mean())
 
-			#print(len(noise_amp_a))
+            #print(len(noise_amp_a))
 
-			if alpha != 0:
-				rec_loss = nn.MSELoss()
-				rec_a = netG_a(fixed_noise_a, reals_shapes, noise_amp_a) #xem lai
-				rec_loss_a = alpha * rec_loss(rec_a, real_a)
+            if alpha != 0:
+                rec_loss = nn.MSELoss()
+                rec_a = netG_a(fixed_noise_a, reals_shapes, noise_amp_a) #xem lai
+                rec_loss_a = alpha * rec_loss(rec_a, real_a)
 
-				rec_b = netG_b(fixed_noise_b, reals_shapes, noise_amp_b)
-				rec_loss_b = alpha * rec_loss(rec_b, real_b)
-			else:
-				rec_loss_a = 0
-				rec_loss_b = 0
+                rec_b = netG_b(fixed_noise_b, reals_shapes, noise_amp_b)
+                rec_loss_b = alpha * rec_loss(rec_b, real_b)
+            else:
+                rec_loss_a = 0
+                rec_loss_b = 0
 
-			if beta != 0:
-				cycle_loss = nn.MSELoss()
+            if beta != 0:
+                cycle_loss = nn.MSELoss()
             
-				if (depth != 0):
-					cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a, is_noise =True) #if else chỗ này tai scale thứ 2 trở đi tăng chanel lên 64 
-					cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b, is_noise = True)
-				else:
-					cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a) #if else chỗ này tai scale thứ 2 trở đi tăng chanel lên 64 
-					cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b)        
+                if (depth != 0):
+                    cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a, is_noise =True) #if else chỗ này tai scale thứ 2 trở đi tăng chanel lên 64 
+                    cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b, is_noise = True)
+                else:
+                    cycle_a = netG_a(mixs_g_b,reals_shapes, noise_amp_a) #if else chỗ này tai scale thứ 2 trở đi tăng chanel lên 64 
+                    cycle_b = netG_b(mixs_g_a,reals_shapes, noise_amp_b)        
             
-				cycle_loss_a = beta * cycle_loss(cycle_a, fake_a)
-				cycle_loss_b = beta * cycle_loss(cycle_b, fake_b)
-			else:
-				cycle_loss_a = 0
-				cycle_loss_b = 0
+                cycle_loss_a = beta * cycle_loss(cycle_a, fake_a)
+                cycle_loss_b = beta * cycle_loss(cycle_b, fake_b)
+            else:
+                cycle_loss_a = 0
+                cycle_loss_b = 0
                 
-			errG_total_a = errG_a + rec_loss_a + cycle_loss_a
-			errG_total_a.backward(retain_graph=True)
+            errG_total_a = errG_a + rec_loss_a + cycle_loss_a
+            errG_total_a.backward(retain_graph=True)
 
-			errG_total_b = errG_b + rec_loss_b + cycle_loss_b
-			errG_total_b.backward(retain_graph=True)
+            errG_total_b = errG_b + rec_loss_b + cycle_loss_b
+            errG_total_b.backward(retain_graph=True)
 
-			for _ in range(opt.Gsteps):
-				optimizerG.step()
+            for _ in range(opt.Gsteps):
+                optimizerG.step()
 
         ############################
         ####  (3) Log Results   ####
@@ -432,23 +440,23 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             #writer.add_scalar('Loss/train/D/gradient_penalty/{}'.format(j), gradient_penalty.item(), iter+1)
             #writer.add_scalar('Loss/train/G/gen', errG.item(), iter+1)
             #writer.add_scalar('Loss/train/G/reconstruction', rec_loss.item(), iter+1)
-			if iter % 500 == 0 or iter+1 == opt.niter:
-				functions.save_image('{}/fake_sample_a{}.jpg'.format(opt.outf, iter+1), fake_a.detach())
-				functions.save_image('{}/reconstruction_a{}.jpg'.format(opt.outf, iter+1), rec_a.detach())
-				functions.save_image('{}/fake_sample_b{}.jpg'.format(opt.outf, iter+1), fake_b.detach())
-				functions.save_image('{}/reconstruction_b{}.jpg'.format(opt.outf, iter+1), rec_b.detach())
-				functions.save_image('{}/b2a_{}.jpg'.format(opt.outf,iter+1),mix_g_a.detach())
-				functions.save_image('{}/a2b_{}.jpg'.format(opt.outf,iter+1),mix_g_b.detach())
-			# generate_samples(netG_a, opt, depth, noise_amp, writer, reals, iter+1)
+            if iter % 500 == 0 or iter+1 == opt.niter:
+                functions.save_image('{}/fake_sample_a{}.jpg'.format(opt.outf, iter+1), fake_a.detach())
+                functions.save_image('{}/reconstruction_a{}.jpg'.format(opt.outf, iter+1), rec_a.detach())
+                functions.save_image('{}/fake_sample_b{}.jpg'.format(opt.outf, iter+1), fake_b.detach())
+                functions.save_image('{}/reconstruction_b{}.jpg'.format(opt.outf, iter+1), rec_b.detach())
+                functions.save_image('{}/b2a_{}.jpg'.format(opt.outf,iter+1),mix_g_a.detach())
+                functions.save_image('{}/a2b_{}.jpg'.format(opt.outf,iter+1),mix_g_b.detach())
+            # generate_samples(netG_a, opt, depth, noise_amp, writer, reals, iter+1)
 
-			schedulerD.step()
-			schedulerG.step()
-			# break
-			
+            schedulerD.step()
+            schedulerG.step()
+            # break
+            
     #print("Fakes_a: {}".format([r.shape for r in fakes_a]))
     #print("Fakes_b: {}".format([r.shape for r in fakes_b]))
-	functions.save_networks(netG_a,netG_b, netD_a,netD_b, z_opt_a,z_opt_b, opt)
-	
+    functions.save_networks(netG_a,netG_b, netD_a,netD_b, z_opt_a,z_opt_b, opt)
+    
     return fixed_noise_a, fixed_noise_b, noise_amp_a, noise_amp_b, netG_a, netG_b, netD_a, netD_b, fakes_a,fakes_b, mixs_g_a, mixs_g_b
 
 

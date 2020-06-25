@@ -38,9 +38,19 @@ if __name__ == '__main__':
 
     parser.add_argument('--fine_tune', action='store_true', help='whether to fine tune on a given image', default=0)
     parser.add_argument('--model_dir', help='model to be used for fine tuning (harmonization or editing)', default="")
+    
+    parser.add_argument('--num_images', type=int, default=1)
+    parser.add_argument('--vid_ext', help='ext for video frames', default='.jpg')
+    parser.add_argument('--bs', type=int, default=1)
+    parser.add_argument('--video_dir', help='input image path', required=True)
+    parser.add_argument('--out', default='./out/')
 
     opt = parser.parse_args()
     opt = functions.post_config(opt)
+
+    #if opt.train_mode == "video":
+		    
+     #   opt = parser.parse_args()
 
     if opt.fine_tune:
         _gpu = opt.gpu
@@ -59,19 +69,15 @@ if __name__ == '__main__':
         opt.naive_img = _naive_img
         opt.niter = _niter
 
-    if not os.path.exists(opt.input_a or opt.input_b):
-        print("Image does not exist: {} or {}".format(opt.input_a, opt.input_a))
+    #if not os.path.exists(opt.input_a or opt.input_b or opt.video_dir):
+    if not os.path.exists(opt.input_b or opt.video_dir):
+        print("Image does not exist: {} or {}".format(opt.input_b, opt.video_dir))
         print("Please specify a valid image.")
         exit()
 
     if torch.cuda.is_available():
         torch.cuda.set_device(opt.gpu)
-		
-	if opt.train_mode == 'video':
-		parser.add_argument('--num_images', type=int, default=1)
-		parser.add_argument('--vid_ext', default='.jpg', help='ext for video frames')
-		parser.add_argument('--bs', type=int, default=1)
-		parser.add_argument('--video_dir', help='input image path', required=True)
+	
 
     if opt.train_mode == "generation" or opt.train_mode == "retarget" or opt.train_mode == "animation":
         if opt.train_mode == "animation":
@@ -92,8 +98,8 @@ if __name__ == '__main__':
                 print("Image for harmonization/editing not found: {}".format(opt.naive_img))
                 exit()
         from ConSinGAN.training_harmonization_editing import *
-	elif opt.train_mode == "video":
-		from ConSinGAN.training_video import *
+    elif opt.train_mode == "video":
+		    from ConSinGAN.train_video import *
 
     dir2save = functions.generate_dir2save(opt)
 

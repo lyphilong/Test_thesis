@@ -56,6 +56,14 @@ def generate_noise(size,num_samp=1,device='cuda',type='gaussian', scale=1):
         raise NotImplementedError
     return noise
 
+def generate_noise2(size,num_samp=1,device='cuda',type='gaussian', scale=1):
+    noise = []
+    for i in range(size[0]):
+        noise.append(generate_noise(size[1:], num_samp=1, device='cuda', type='gaussian', scale=1).squeeze(0))
+
+    res = torch.stack(noise, dim=0)
+
+    return res
 
 def upsampling(im,sx,sy):
     m = nn.Upsample(size=[round(sx),round(sy)],mode='bilinear',align_corners=True)
@@ -238,7 +246,10 @@ def load_trained_model(opt):
 
 
 def generate_dir2save(opt):
-    training_image_name = opt.input_a[:-4].split("/")[-1]
+    if opt.train_mode != "video":
+        training_image_name = opt.input_a[:-4].split("/")[-1]
+    else:
+        training_image_name = opt.video_dir[:-4].split("/")[-1]
     dir2save = 'TrainedModels/{}/'.format(training_image_name)
     dir2save += opt.timestamp
     dir2save += "_{}".format(opt.train_mode)
