@@ -92,7 +92,7 @@ def sample_random_noise(depth, reals_shapes, opt):
             noise.append(generate_noise([opt.nc_im, reals_shapes[d][2], reals_shapes[d][3]],
                                          device=opt.device).detach())
         else:
-            if opt.train_mode == "generation" or opt.train_mode == "animation":
+            if opt.train_mode in ["generation", "animation", "video"]:
                 noise.append(generate_noise([opt.nfc, reals_shapes[d][2] + opt.num_layer * 2,
                                              reals_shapes[d][3] + opt.num_layer * 2],
                                              device=opt.device).detach())

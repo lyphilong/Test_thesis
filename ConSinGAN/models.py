@@ -109,7 +109,8 @@ class GrowingGenerator(nn.Module):
         x_prev_out = self.body[0](x)
 
         for idx, block in enumerate(self.body[1:], 1):
-            if self.opt.train_mode == "generation" or self.opt.train_mode == "animation":
+            if self.opt.train_mode in ["generation", "animation", "video"]:
+            #if self.opt.train_mode == "generation" or self.opt.train_mode == "animation" or self.opt.:
                 x_prev_out_1 = upsample(x_prev_out, size=[real_shapes[idx][2], real_shapes[idx][3]])
                 x_prev_out_2 = upsample(x_prev_out, size=[real_shapes[idx][2] + self.opt.num_layer*2,
                                                           real_shapes[idx][3] + self.opt.num_layer*2])

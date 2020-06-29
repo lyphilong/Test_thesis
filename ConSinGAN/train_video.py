@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
-from torchsummary import summary
+#from torchsummary import summary
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
@@ -14,6 +14,14 @@ import torch.utils.data as Data
 import ConSinGAN.functions as functions
 import ConSinGAN.models as models
 import ConSinGAN.imresize as imresize
+#import ConSinGAN.FLOPs_counter as flops
+
+from pytorch_model_summary import summary
+#from ptflops import get_model_complexity_info
+
+from thop import profile
+from thop import clever_format
+
 
 
 class Video_dataset(Data.Dataset):
@@ -84,6 +92,9 @@ def train(opt):
     print("Training on image pyramid: {}".format([r.shape for r in reals_b]))
 
     print("")
+    
+    netG = init_G(opt)
+
 
     #Add generator A
     generator_a = init_G(opt)
@@ -128,7 +139,12 @@ def train(opt):
                                                               fakes_a, fakes_b, 
                                                               mixs_g_a,mixs_g_b,
                                                               opt, scale_num)
-        model_summary(generator_a)
+        reals_shapes = [real.shape for real in reals_b]
+        print(summary(generator_b, fixed_noise_b, reals_shapes, noise_amp_b, show_input=False, show_hierarchical=False))
+        flops, params = profile(generator_b, (fixed_noise_b, reals_shapes, noise_amp_b))
+        macs, params = clever_format([flops, params], "%.3f")
+        print(macs)
+        #model_summary(generator_a)
         #print("Chiều dài fakes a là: ", len(fakes_a))
         #print("Chiều dài fakes b là: ",len(fakes_b))
         torch.save(fixed_noise_a, '%s/fixed_noise_a.pth' % (opt.out_))
@@ -157,6 +173,9 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
     
     # start training
     n_iters = int(opt.niter / opt.num_images)
+    
+    first_depth = depth
+    add_depth = depth
 
     _iter = tqdm(range(n_iters)) #In tiến trình
     for iter in _iter:
@@ -165,8 +184,10 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
         for reals_a in data_loader_a:
             real_a = reals_a[depth]
             #print(real_a.shape)
-            
-            if iter == 0:
+
+            is_change_depth = first_depth - add_depth
+
+            if iter == 0 and is_change_depth == 0:
                 ############################
                 # define z_opt for training on reconstruction
                 ###########################
@@ -192,6 +213,11 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                                                           device=opt.device).detach()
                 fixed_noise_a.append(z_opt_a.detach())
                 fixed_noise_b.append(z_opt_b.detach())
+
+                 
+                
+                add_depth = add_depth + 1
+                
 
                 ############################
                 # define optimizers, learning rate schedulers, and learning rates for lower stages
@@ -251,6 +277,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     # noise_amp_b
                     noise_amp_b.append(0)
                     z_reconstruction_b = netG_b(fixed_noise_b, reals_shapes, noise_amp_b)
+                  
 
                     rec_loss_b = criterion(z_reconstruction_b, real_b)
                     RMSE_b = torch.sqrt(rec_loss_b).detach()
@@ -486,7 +513,7 @@ def init_G(opt):
     # generator initialization:
     netG = models.GrowingGenerator(opt).to(opt.device)
     netG.apply(models.weights_init)
-    print(netG)
+    #print(netG)
     # print(netG)
 
     return netG
@@ -508,24 +535,41 @@ def model_summary(model):
   print("="*100)
   model_parameters = [layer for layer in model.parameters() if layer.requires_grad] #Parameter training
   layer_name = [child for child in model.children()]
+  print(layer_name)
   j = 0
   total_params = 0
   print("\t"*10)
   for i in layer_name:
     print()
     param = 0
+    print(type(i))
+    print(len(model_parameters))
+      
     try:
-      bias = (i.bias is not None)
+      for ii in i:
+          try:
+            bias = (ii.bias is not None)
+          except:
+            bias = False
+          if not bias:
+            param = model_parameters[j].numel()+model_parameters[j+1].numel()
+            j = j + 2
+          else:
+            param = model_parameters[j].numel()
+            j = j +1
+          print(str(ii)+"\t"*3+str(param))
     except:
-      bias = False  
-    if not bias:
-      param =model_parameters[j].numel()+model_parameters[j+1].numel()
-      j = j+2
-    else:
-      param =model_parameters[j].numel()
-      j = j+1
-    print(str(i)+"\t"*3+str(param))
-    total_params+=param
-  print("="*100)
-  print(f"Total Params:{total_params}")       
-
+      try:
+        bias = (i.bias is not None)
+      except:
+        bias = False
+        if not bias:
+          param = model_parameters[j].numel()+model_parameters[j+1].numel()
+          j = j + 2
+        else:
+          param = model_parameters[j].numel()
+          j = j +1
+        print(str(i)+"\t"*3+str(param))
+    total_params += param
+    print("="*100)
+  print(f"Tổng tham số tại 1 level: {total_params}")
