@@ -3,12 +3,46 @@ import torch
 import torch.nn as nn
 import math
 import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
+import torch.utils.data as Data
 
 from ConSinGAN.config import get_arguments
 import ConSinGAN.functions as functions
 import ConSinGAN.models as models
 from ConSinGAN.imresize import imresize, imresize_to_shape
 
+class Video_dataset(Data.Dataset):
+    """Faces."""
+
+    def __init__(self, root_dir, size, ext, opt):
+        self.root_dir = root_dir
+        self.size = size
+        self.ext = ext
+
+        self.data = {}
+
+        for j in range(self.size):
+            img_name = os.path.join(self.root_dir, str(j) + self.ext)
+            image = functions.read_image_dir(img_name, opt)
+            image = functions.adjust_scales2image(image, opt)
+            imgs = functions.create_reals_pyramid(image, opt)
+
+            for i in range(len(imgs)): 
+                imgs[i] = imgs[i].view(3,imgs[i].shape[2],imgs[i].shape[3])
+
+            self.data[j] = imgs
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        return tuple(self.data[idx])
+
+    def __getimageorg__(self,opt):
+        img_name = os.path.join(self.root_dir, '0' + self.ext)
+        image = functions.read_image_dir(img_name, opt)
+
+        return image
 
 def make_dir(path):
     try:
@@ -48,6 +82,10 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', type=int, help='which GPU', default=0)
     parser.add_argument('--num_samples', type=int, help='which GPU', default=50)
     parser.add_argument('--naive_img', help='naive input image  (harmonization or editing)', default="")
+    parser.add_argument('--video_dir', help='input image path', required=True)
+    parser.add_argument('--num_images', type=int, default=1)
+    parser.add_argument('--vid_ext', default='.jpg', help='ext for video frames')
+    parser.add_argument('--out', help = 'save image generate',default='./out/')
 
     opt = parser.parse_args()
     _gpu = opt.gpu
@@ -66,10 +104,13 @@ if __name__ == '__main__':
     make_dir(dir2save)
 
     print("Loading models...")
-    netG = torch.load('%s/G.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
-    fixed_noise = torch.load('%s/fixed_noise.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
-    reals = torch.load('%s/reals.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
-    noise_amp = torch.load('%s/noise_amp.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
+    netG_a = torch.load('%s/G_a.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
+    netG_b = torch.load('%s/G_b.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
+    fixed_noise_a = torch.load('%s/fixed_noise_a.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
+    fixed_noise_b = torch.load('%s/fixed_noise_b.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
+    reals = torch.load('%s/reals_b.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
+    noise_amp_a = torch.load('%s/noise_amp_a.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
+    noise_amp_b = torch.load('%s/noise_amp_b.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
     reals_shapes = [r.shape for r in reals]
 
     if opt.train_mode == "generation" or opt.train_mode == "retarget":
@@ -119,6 +160,25 @@ if __name__ == '__main__':
             for _beta in range(80, 100, 5):
                 functions.generate_gif(dir2save, netG, fixed_noise, reals, noise_amp, opt,
                                        alpha=0.1, beta=_beta/100.0, start_scale=_start_scale, num_images=100, fps=10)
+    
+    elif opt.train_mode == "video":
+        print("Generating Frame...")
+        dataset_a = Video_dataset(opt.video_dir, opt.num_images, opt.vid_ext, opt)
+        data_loader_a = DataLoader(dataset_a, shuffle=True,batch_size=1)
+        i = 1
+        for data in data_loader_a:
+            #print(len(data))
+            #data_a, idx  = data
+            #real_a = data_a[-1].cuda()
+
+            noise = fixed_noise_a[-1]
+            #print(noise.shape)
+            fake_a = netG_b(fixed_noise_a, reals_shapes, noise_amp_a)
+            #fake_a = netG_a(k, reals_shapes, noise_amp_a)
+            #mix_g_b = netG_b(fake_a,reals_shapes,noise_amp_a)
+
+            functions.save_image('{}/b2a_{}.jpg'.format(dir2save +,i),fake_a.detach())
+            i = i + 1
 
     print("Done. Results saved at: {}".format(dir2save))
 
