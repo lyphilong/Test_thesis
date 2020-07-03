@@ -103,6 +103,8 @@ if __name__ == '__main__':
     dir2save = os.path.join(opt.model_dir, "Evaluation")
     make_dir(dir2save)
 
+    fixed_noise_a = []
+
     print("Loading models...")
     netG_a = torch.load('%s/G_a.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
     netG_b = torch.load('%s/G_b.pth' % opt.model_dir, map_location="cuda:{}".format(torch.cuda.current_device()))
@@ -166,19 +168,25 @@ if __name__ == '__main__':
         dataset_a = Video_dataset(opt.video_dir, opt.num_images, opt.vid_ext, opt)
         data_loader_a = DataLoader(dataset_a, shuffle=True,batch_size=1)
         i = 1
+        tmp = (r for r in fixed_noise_a)
+        for a in range(6):
+            print("Hình dạng của fixed_noise_a: {}".format(tmp.__next__().shape))
+        
         for data in data_loader_a:
-            #print(len(data))
-            #data_a, idx  = data
-            #real_a = data_a[-1].cuda()
+            noise = functions.sample_random_noise_video(data,reals_shapes, opt)
+            tmp1 = (a for a in data)
+            tmp2 = (b for b in noise)
+            for b in range(6):
+                print("Hình dạng của data: {}".format(tmp1.__next__().shape))
+                print("Hình dạng của noise: {}".format(tmp2.__next__().shape))
+            
+            print("Kích thước cua noise: {}".format(r.shape for r in noise))
+            sample = netG_b(noise, reals_shapes, noise_amp_a)
 
-            noise = fixed_noise_a[-1]
-            #print(noise.shape)
-            fake_a = netG_b(fixed_noise_a, reals_shapes, noise_amp_a)
-            #fake_a = netG_a(k, reals_shapes, noise_amp_a)
-            #mix_g_b = netG_b(fake_a,reals_shapes,noise_amp_a)
 
-            functions.save_image('{}/b2a_{}.jpg'.format(dir2save +,i),fake_a.detach())
+            functions.save_image('{}/b2a_{}.jpg'.format(dir2save,i),sample.detach())
             i = i + 1
 
     print("Done. Results saved at: {}".format(dir2save))
-
+	
+	
