@@ -11,11 +11,11 @@ def convert_frames_to_video(args):
     files = []
     for i in range(args.frames):
         if args.const:
-            files.append(str(args.start_cnt) + args.ext)
+            files.append('/b2a_' + str(args.start_cnt) + args.ext)
         elif not args.reverse:
-            files.append(str(args.start_cnt + i) + args.ext)
+            files.append('/b2a_' + str(args.start_cnt + i) + args.ext)
         else:
-            files.append(str(args.start_cnt + args.frames - i -1) + args.ext)
+            files.append('/b2a_' + str(args.start_cnt + args.frames - i -1) + args.ext)
 
     print(files)
 
@@ -24,6 +24,7 @@ def convert_frames_to_video(args):
 
     for i in range(len(files)):
         filename = args.input + files[i]
+        print(filename)
         # reading each files
         img = cv2.imread(filename)
         height, width, layers = img.shape
@@ -45,9 +46,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', default='video.avi')
     parser.add_argument('--input', default='./data/')
-    parser.add_argument('--ext', default='.png')
+    parser.add_argument('--ext', default='.jpg')
     parser.add_argument('--fps', type=float, default=15.0)
-    parser.add_argument('--start_cnt', type=int, default=0)
+    parser.add_argument('--start_cnt', type=int, default=1)
     parser.add_argument('--frames', type=int, default=10)
     parser.add_argument('--reverse', type=bool, default=False)
     parser.add_argument('--const', type=bool, default=False)

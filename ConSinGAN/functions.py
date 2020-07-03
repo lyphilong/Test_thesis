@@ -102,6 +102,24 @@ def sample_random_noise(depth, reals_shapes, opt):
 
     return noise
 
+def sample_random_noise_video(target_images, reals_shapes,opt):
+    noise_video = []
+    m = nn.Conv2d(3, 64, kernel_size=1, stride=1).to(opt.device)
+    for d in range(len(target_images)):
+        if d == 0:
+            noise_video.append(target_images[d])
+        else:
+            w = reals_shapes[d][2] + opt.num_layer * 2
+            h = reals_shapes[d][3] + opt.num_layer * 2
+            target_image = torch2uint8(target_images[d])
+            target_image = imresize_in(target_image, output_shape=(w,h))
+            target_image = np2torch(target_image,opt)
+            target_image = m(target_image.cuda())
+            noise_video.append(target_image)
+    
+    return noise_video
+
+
 def calc_gradient_penalty(netD, real_data, fake_data, LAMBDA, device):
     MSGGan = False
     if  MSGGan:

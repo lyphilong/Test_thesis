@@ -43,3 +43,5 @@ torchvision==0.2.2.post3
 tqdm==4.27.0
 urllib3==1.25.8
 Werkzeug==1.0.0
+pytorch-model-summary
+thop
