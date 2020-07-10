@@ -167,10 +167,59 @@ if __name__ == '__main__':
         print("Generating Frame...")
         dataset_a = Video_dataset(opt.video_dir, opt.num_images, opt.vid_ext, opt)
         data_loader_a = DataLoader(dataset_a, shuffle=True,batch_size=1)
-        i = 1
         tmp = (r for r in fixed_noise_a)
         for a in range(6):
             print("Hình dạng của fixed_noise_a: {}".format(tmp.__next__().shape))
+
+        beta = 80
+        alpha = 0.1
+
+        with torch.no_grad():
+            noise_random = functions.sample_random_noise(len(fixed_noise_a) - 1, reals_shapes, opt)
+            for i in range(len(fixed_noise_a)):
+                print("Hình dạng của random noise: {}".format(noise_random[i].shape))
+
+            i = 0
+            for data in data_loader_a:
+                
+                datas = functions.sample_random_noise_video(data,reals_shapes, opt)
+
+                #noise = 0.001*noise_random + 0.999* datas
+
+                noise = [0.999* fixed_noise_b[i] + datas[i] for i in range(len(fixed_noise_a))]
+
+                functions.save_image('{}/noise{}.jpg'.format(dir2save,i),noise[-1].detach())
+
+                fake_a = netG_a(noise,reals_shapes, noise_amp_b)
+                functions.save_image('{}/fake{}.jpg'.format(dir2save,i),fake_a.detach())
+
+                fake_a = functions.adjust_scales2image(fake_a, opt)
+                fakes_a = functions.create_reals_pyramid(fake_a, opt)
+                fakes_a = functions.sample_random_noise_video(fakes_a,reals_shapes, opt)
+
+                mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_b)
+
+                functions.save_image('{}/b2a_{}.jpg'.format(dir2save,i),mix_g_b.detach())
+                i = i + 1
+        '''
+            z_prev1 = [0.99 * fixed_noise_a[i] + 0.01 * noise_random[i] for i in range(len(fixed_noise_a))]
+            z_prev2 = fixed_noise_a
+            for _ in range(250):
+                noise_random = functions.sample_random_noise(len(fixed_noise_a)-1, reals_shapes, opt)
+                diff_curr = [beta*(z_prev1[i]-z_prev2[i])+(1-beta)*noise_random[i] for i in range(len(fixed_noise_a))]
+                z_curr = [alpha * fixed_noise_a[i] + (1 - alpha) * (z_prev1[i] + diff_curr[i]) for i in range(len(fixed_noise_a))]
+
+                if a > 0:
+                    z_curr = [fixed_noise_a[ii] for ii in range(a)] + [z_curr[ii] for ii in range(a, len(fixed_noise_a))]
+
+                z_prev2 = z_prev1
+                z_prev1 = z_curr
+
+                sample = netG_b(z_curr, reals_shapes, noise_amp_a)
+                functions.save_image('{}/b2a_{}.jpg'.format(dir2save,_),sample.detach())
+        
+        a = a + 1
+        
         
         for data in data_loader_a:
             noise = functions.sample_random_noise_video(data,reals_shapes, opt)
@@ -183,10 +232,42 @@ if __name__ == '__main__':
             print("Kích thước cua noise: {}".format(r.shape for r in noise))
             sample = netG_b(noise, reals_shapes, noise_amp_a)
 
-
-            functions.save_image('{}/b2a_{}.jpg'.format(dir2save,i),sample.detach())
-            i = i + 1
+        '''
+            
 
     print("Done. Results saved at: {}".format(dir2save))
-	
+
+'''
+    def generate_gif(dir2save, netG, fixed_noise, reals, noise_amp, opt, alpha=0.1, beta=0.9, start_scale=1,
+                 num_images=100, fps=10):
+    def denorm_for_gif(img):
+        img = denorm(img).detach()
+        img = img[0, :, :, :].cpu().numpy()
+        img = img.transpose(1, 2, 0) * 255
+        img = img.astype(np.uint8)
+        return img
+
+    reals_shapes = [r.shape for r in reals]
+    all_images = []
+
+    with torch.no_grad():
+        noise_random = sample_random_noise(len(fixed_noise) - 1, reals_shapes, opt)
+        z_prev1 = [0.99 * fixed_noise[i] + 0.01 * noise_random[i] for i in range(len(fixed_noise))]
+        z_prev2 = fixed_noise
+        for _ in range(num_images):
+            noise_random = sample_random_noise(len(fixed_noise)-1, reals_shapes, opt)
+            diff_curr = [beta*(z_prev1[i]-z_prev2[i])+(1-beta)*noise_random[i] for i in range(len(fixed_noise))]
+            z_curr = [alpha * fixed_noise[i] + (1 - alpha) * (z_prev1[i] + diff_curr[i]) for i in range(len(fixed_noise))]
+
+            if start_scale > 0:
+                z_curr = [fixed_noise[i] for i in range(start_scale)] + [z_curr[i] for i in range(start_scale, len(fixed_noise))]
+
+            z_prev2 = z_prev1
+            z_prev1 = z_curr
+
+            sample = netG(z_curr, reals_shapes, noise_amp)
+            sample = denorm_for_gif(sample)
+            all_images.append(sample)
+    imageio.mimsave('{}/start_scale={}_alpha={}_beta={}.gif'.format(dir2save, start_scale, alpha, beta), all_images, fps=fps)
+'''	
 	
