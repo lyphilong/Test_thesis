@@ -58,6 +58,7 @@ def generate_noise(size,num_samp=1,device='cuda',type='gaussian', scale=1):
 
 def generate_noise2(size,num_samp=1,device='cuda',type='gaussian', scale=1):
     noise = []
+    print(size)
     for i in range(size[0]):
         noise.append(generate_noise(size[1:], num_samp=1, device='cuda', type='gaussian', scale=1).squeeze(0))
 
@@ -84,6 +85,22 @@ def move_to_cpu(t):
 def save_image(name, image):
     plt.imsave(name, convert_image_np(image), vmin=0, vmax=1)
 
+def sample_random_noise2(depth, reals_shapes, opt):
+    noise = []
+    for d in range(depth + 1):
+        if d == 0:
+            noise.append(generate_noise2([opt.nc_im, reals_shapes[d][2], reals_shapes[d][3]],
+                                         device=opt.device).detach())
+        else:
+            if opt.train_mode in ["generation", "animation", "video"]:
+                noise.append(generate_noise2([opt.nfc, reals_shapes[d][2] + opt.num_layer * 2,
+                                             reals_shapes[d][3] + opt.num_layer * 2],
+                                             device=opt.device).detach())
+            else:
+                noise.append(generate_noise2([opt.nfc, reals_shapes[d][2], reals_shapes[d][3]],
+                                             device=opt.device).detach())
+      
+    return noise
 
 def sample_random_noise(depth, reals_shapes, opt):
     noise = []
@@ -104,7 +121,7 @@ def sample_random_noise(depth, reals_shapes, opt):
 
 def sample_random_noise_video(target_images, reals_shapes,opt):
     noise_video = []
-    m = nn.Conv2d(3, 64, kernel_size=1, stride=1).to(opt.device)
+    #m = nn.Conv2d(3, 64, kernel_size=1, stride=1).to(opt.device)
     for d in range(len(target_images)):
         if d == 0:
             noise_video.append(target_images[d])
@@ -114,7 +131,7 @@ def sample_random_noise_video(target_images, reals_shapes,opt):
             target_image = torch2uint8(target_images[d])
             target_image = imresize_in(target_image, output_shape=(w,h))
             target_image = np2torch(target_image,opt)
-            target_image = m(target_image.cuda())
+            #target_image = m(target_image.cuda())
             noise_video.append(target_image)
     
     return noise_video

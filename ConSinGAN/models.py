@@ -94,12 +94,16 @@ class GrowingGenerator(nn.Module):
 
     def forward(self, noise, real_shapes, noise_amp, is_noise = False):
         if (is_noise):
+            for i in range(1, len(noise)):
+              if noise[i].shape[1] != 64:
+                  noise[i] = self.one_conv(noise[i])
+
             #print(len(noise))
             #for i in range(1, len(noise)):
                 #print(noise[1].shape[1])
             #    if noise[i].shape[1] != 64:
             #        noise[i] = self.one_conv(noise[i])
-            noise[-1] = self.one_conv(noise[-1])
+            #noise[-1] = self.one_conv(noise[-1])
             #for i in range(1, len(noise)):
                 
                 #print("Kích thước của hình sau khi đi 1x1 conv ", noise[i].shape)

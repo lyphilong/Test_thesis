@@ -31,6 +31,7 @@ def get_arguments():
     parser.add_argument('--Gsteps',type=int, help='Generator inner steps',default=3)
     parser.add_argument('--Dsteps',type=int, help='Discriminator inner steps',default=3)
     parser.add_argument('--lambda_grad',type=float, help='gradient penalty weight',default=0.1)
+    parser.add_argument('--lambda_self', type=float, default=1.0)
     parser.add_argument('--alpha',type=float, help='reconstruction loss weight',default=10)
     parser.add_argument('--beta', type=float, help='cycle loss weight', default=1.0)
     parser.add_argument('--activation', default='lrelu', help="activation function {lrelu, prelu, elu, selu}")
