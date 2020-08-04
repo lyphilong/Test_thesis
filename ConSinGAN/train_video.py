@@ -161,7 +161,11 @@ def train(opt):
 
 
 def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, fixed_noise_a,fixed_noise_b, noise_amp_a,noise_amp_b, fakes_a,fakes_b, mixs_g_a, mixs_g_b, opt, depth):
-
+    errG_a_plot =[]
+    errG_b_plot =[]
+    errD_a_plot = []
+    errD_b_plot = []
+    
     reals_shapes = [real.shape for real in reals_b]
     #real_a = reals_a[depth]
     real_b = reals_b[depth]
@@ -314,15 +318,19 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     realss_b.append(reals_b[i])
                     realss_a.append(reals_a[i])
 
-            pr8int([realss_b[i].shape for i in range(len(realss_b))])
-            noisy_real_b = [opt.noise_amp_b * other_noise_b[i] + realss_b[i] for i in range(len(other_noise_b))]
-            noisy_real_a = [opt.noise_amp_a * other_noise_a[i] + realss_a[i] for i in range(len(other_noise_a))]
+            
+            if depth != 0:
+                realss_b = functions.sample_random_noise_video(realss_b, reals_shapes,opt)
+                realss_a = functions.sample_random_noise_video(realss_a, reals_shapes,opt)
+
+            #print([realss_b[i].shape for i in range(len(realss_b))])
+            noisy_real_b = [opt.noise_amp_b * other_noise_b[i] + realss_b[i] for i in range(len(other_noise_a))]
+            noisy_real_a = [opt.noise_amp_a * other_noise_a[i] + realss_a[i] for i in range(len(other_noise_b))]
 
             if opt.lambda_self > 0.0:
-                self_a = netG_a(noisy_real_b,reals_shapes, noise_amp_b)
-                self_b = netG_b(noisy_real_a,reals_shapes, noise_amp_a)
+                self_a = netG_a(noisy_real_b, reals_shapes, noise_amp_b)
+                self_b = netG_b(noisy_real_a, reals_shapes, noise_amp_a)
                 
-
             ############################
             # (1) Update D network: maximize D(x) + D(G(z))
             ###########################
@@ -354,9 +362,8 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
 
                 if (fakes_a[-1].shape[2] != noise[-1].shape[2] or fakes_a[-1].shape[3] != noise[-1].shape[3]):
                     fakes_a[-1] = torch.nn.functional.interpolate(fakes_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
-                     
-            
-
+                    
+         
                 if j == opt.Dsteps - 1:
                     fake_b = netG_b(noise, reals_shapes, noise_amp_b)
                 else:
@@ -396,7 +403,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     gradient_penalty_a += opt.lambda_self * functions.calc_gradient_penalty(netD_a, real_a, self_a, opt.lambda_grad,
                                                                               opt.device)
 
-                errD_total_a = errD_real + errD_fake_a + gradient_penalty_a
+                errD_total_a = errD_real + errD_fake_a + gradient_penalty_a                
                 errD_total_a.backward(retain_graph=True)
             
                 # Tại mỗi scale thì chèn vào mix duy nhất
@@ -455,6 +462,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     mixs_g_b[-1] = torch.nn.functional.interpolate(mixs_g_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
     
                 optimizerD.step()
+            
 
             ############################
             # (2) Update G network: maximize D(G(z))
@@ -512,12 +520,28 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                 
             errG_total_a = errG_a + rec_loss_a + cycle_loss_a
             errG_total_a.backward(retain_graph=True)
-
-            errG_total_b = errG_b + rec_loss_b + cycle_loss_b
+            errG_total_b = errG_b + rec_loss_b + cycle_loss_b            
             errG_total_b.backward(retain_graph=True)
 
             for _ in range(opt.Gsteps):
                 optimizerG.step()
+            
+            errD_b_plot.append(errD_total_b.item())
+            errD_a_plot.append(errD_total_a.item())
+            errG_b_plot.append(errG_total_b.item())
+            errG_a_plot.append(errG_total_a.item())
+
+            epoch_count = range(1, len(errG_a_plot) + 1)
+            #print(len(errD_a_plot), len(errG_a_plot))
+            plt.plot(epoch_count, errG_a_plot, 'r-')
+            plt.plot(epoch_count, errG_b_plot, 'b--')
+            plt.plot(epoch_count, errD_a_plot, 'k-.')
+            plt.plot(epoch_count, errD_b_plot, 'm--')
+            plt.legend(['G_a Loss', 'G_b Loss', 'D_a Loss', 'D_b Loss'])
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.savefig('{}/loss_plot_{}.png'.format(opt.outf, depth))
+            plt.close() 
             
             functions.save_image('{}/fake_sample_a{}.jpg'.format(opt.outf, tmp+1), fake_a.detach())
             functions.save_image('{}/reconstruction_a{}.jpg'.format(opt.outf, tmp+1), rec_a.detach())
@@ -525,7 +549,9 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             functions.save_image('{}/reconstruction_b{}.jpg'.format(opt.outf, tmp+1), rec_b.detach())
             functions.save_image('{}/b2a_{}.jpg'.format(opt.outf,tmp+1),mix_g_a.detach())
             functions.save_image('{}/a2b_{}.jpg'.format(opt.outf,tmp+1),mix_g_b.detach())
+            functions.save_image('{}/real_a{}.jpg'.format(opt.outf,tmp+1), real_a)
             tmp = tmp + 1
+            
 
         ############################
         ####  (3) Log Results   ####
@@ -537,6 +563,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             #writer.add_scalar('Loss/train/D/gradient_penalty/{}'.format(j), gradient_penalty.item(), iter+1)
             #writer.add_scalar('Loss/train/G/gen', errG.item(), iter+1)
             #writer.add_scalar('Loss/train/G/reconstruction', rec_loss.item(), iter+1)
+            
             '''
             if iter % 1 == 0 or iter+1 == opt.niter:
                 functions.save_image('{}/fake_sample_a{}.jpg'.format(opt.outf, iter+1), fake_a.detach())
@@ -551,9 +578,11 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             schedulerD.step()
             schedulerG.step()
             # break
-            
+    print(len(errD_a_plot), len(errG_a_plot))       
     #print("Fakes_a: {}".format([r.shape for r in fakes_a]))
     #print("Fakes_b: {}".format([r.shape for r in fakes_b]))
+
+
     functions.save_networks(netG_a,netG_b, netD_a,netD_b, z_opt_a,z_opt_b, opt)
     
     return fixed_noise_a, fixed_noise_b, noise_amp_a, noise_amp_b, netG_a, netG_b, netD_a, netD_b, fakes_a,fakes_b, mixs_g_a, mixs_g_b
