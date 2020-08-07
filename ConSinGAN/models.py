@@ -68,6 +68,7 @@ class GrowingGenerator(nn.Module):
 
         self.opt = opt
         N = int(opt.nfc)
+        #self.N = int(opt.nfc)
 
         self.one_conv = ConvBlock(opt.nc_im, N , 1, opt.padd_size, opt)
 

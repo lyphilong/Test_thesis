@@ -324,8 +324,12 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                 realss_a = functions.sample_random_noise_video(realss_a, reals_shapes,opt)
 
             #print([realss_b[i].shape for i in range(len(realss_b))])
-            noisy_real_b = [opt.noise_amp_b * other_noise_b[i] + realss_b[i] for i in range(len(other_noise_a))]
-            noisy_real_a = [opt.noise_amp_a * other_noise_a[i] + realss_a[i] for i in range(len(other_noise_b))]
+            #noisy_real_a = realss_a
+            #noisy_real_b = realss_b
+            
+            noisy_real_b = [other_noise_a[i] + realss_b[i] for i in range(len(other_noise_a))]
+            noisy_real_a = [other_noise_b[i] + realss_a[i] for i in range(len(other_noise_b))]
+            
 
             if opt.lambda_self > 0.0:
                 self_a = netG_a(noisy_real_b, reals_shapes, noise_amp_b)
@@ -342,7 +346,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                 netD_a.zero_grad()
             
                 # train with real
-                output = netD_a(real_a)
+                output = netD_a(real_a).to(opt.device)
                 errD_real = -1 * (2 + opt.lambda_self) * output.mean()
 
                 # train with fake
@@ -382,9 +386,9 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     fakes_b[-1] = torch.nn.functional.interpolate(fakes_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
 
                 if(depth !=0):
-                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b, is_noise = True)
+                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_a, is_noise = True)
                 else:
-                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
+                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_a)
 
                 #mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
                 #mixs_g_a.append(mix_g_a)
@@ -403,7 +407,8 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     gradient_penalty_a += opt.lambda_self * functions.calc_gradient_penalty(netD_a, real_a, self_a, opt.lambda_grad,
                                                                               opt.device)
 
-                errD_total_a = errD_real + errD_fake_a + gradient_penalty_a                
+                errD_total_a = errD_real + errD_fake_a + gradient_penalty_a 
+                errD_real_a = errD_real               
                 errD_total_a.backward(retain_graph=True)
             
                 # Tại mỗi scale thì chèn vào mix duy nhất
@@ -422,14 +427,14 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                 netD_b.zero_grad()
 
                 # train with real
-                output = netD_b(real_b)
+                output = netD_b(real_b).to(opt.device)
                 errD_real = -1 * (2 + opt.lambda_self) * output.mean()
 
                 # train with fake
                 if(depth !=0):
-                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a,is_noise = True)
+                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_b,is_noise = True)
                 else:
-                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a)
+                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_b)
 
             
                 #mixs_g_b.append(mix_g_b)
@@ -442,13 +447,14 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     output_b3 = 0
                 errD_fake_b = output_b.mean() + output_b2.mean() + opt.lambda_self * output_b3
 
-                gradient_penalty_b = functions.calc_gradient_penalty(netD_b, real_b, fake_b, opt.lambda_grad, opt.device)
-                gradient_penalty_b += functions.calc_gradient_penalty(netD_b, real_b, mix_g_b, opt.lambda_grad, opt.device)
+                gradient_penalty_b = functions.calc_gradient_penalty(netD_b, real_b, mix_g_b, opt.lambda_grad, opt.device)
+                gradient_penalty_b += functions.calc_gradient_penalty(netD_b, real_b, fake_b, opt.lambda_grad, opt.device)
                 if opt.lambda_self > 0.0:
                     gradient_penalty_b += opt.lambda_self * functions.calc_gradient_penalty(netD_b, real_b, self_b, opt.lambda_grad,
                                                                               opt.device)
 
                 errD_total_b = errD_real + errD_fake_b + gradient_penalty_b
+                errD_real_b = errD_real
                 errD_total_b.backward(retain_graph=True)
 
                 # Tại mỗi scale thì chèn vào mix duy nhất
@@ -478,7 +484,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             else:
                 output_a3 = 0
 
-            errG_a = -output_a.mean() - output_a2.mean() - opt.lambda_self*output_a3
+            errG_a = -output_a.mean() - output_a2.mean() - opt.lambda_self #*output_a3
 
             output_b = netD_b(mix_g_b)
             output_b2 = netD_b(fake_b)
@@ -487,7 +493,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                 output_b3 = output_b3.mean()
             else:
                 output_b3 = 0
-            errG_b = (-output_b.mean() - output_b2.mean()) - opt.lambda_self*output_a3
+            errG_b = -output_b.mean() - output_b2.mean() - opt.lambda_self#*output_a3
 
             #print(len(noise_amp_a))
 
@@ -526,8 +532,8 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             for _ in range(opt.Gsteps):
                 optimizerG.step()
             
-            errD_b_plot.append(errD_total_b.item())
-            errD_a_plot.append(errD_total_a.item())
+            errD_b_plot.append(-errD_real_b.item())
+            errD_a_plot.append(-errD_real_a.item())
             errG_b_plot.append(errG_total_b.item())
             errG_a_plot.append(errG_total_a.item())
 
@@ -537,12 +543,12 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             plt.plot(epoch_count, errG_b_plot, 'b--')
             plt.plot(epoch_count, errD_a_plot, 'k-.')
             plt.plot(epoch_count, errD_b_plot, 'm--')
-            plt.legend(['G_a Loss', 'G_b Loss', 'D_a Loss', 'D_b Loss'])
-            plt.xlabel('Epoch')
+            plt.legend(['G_a Loss', 'G_b Loss', 'D__real_a Loss', 'D_real_b Loss'])
+            plt.xlabel('Iteration')
             plt.ylabel('Loss')
             plt.savefig('{}/loss_plot_{}.png'.format(opt.outf, depth))
             plt.close() 
-            
+            '''
             functions.save_image('{}/fake_sample_a{}.jpg'.format(opt.outf, tmp+1), fake_a.detach())
             functions.save_image('{}/reconstruction_a{}.jpg'.format(opt.outf, tmp+1), rec_a.detach())
             functions.save_image('{}/fake_sample_b{}.jpg'.format(opt.outf, tmp+1), fake_b.detach())
@@ -551,11 +557,13 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             functions.save_image('{}/a2b_{}.jpg'.format(opt.outf,tmp+1),mix_g_b.detach())
             functions.save_image('{}/real_a{}.jpg'.format(opt.outf,tmp+1), real_a)
             tmp = tmp + 1
+            '''
             
 
         ############################
         ####  (3) Log Results   ####
         ############################
+        
         #if iter % 250 == 0 or iter+1 == opt.niter:
         #    print(f"[{iter}]/20000 tại scale [depth]")
             #writer.add_scalar('Loss/train/D_a/real/{}'.format(j), -errD_real.item(), iter+1)
@@ -563,21 +571,32 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             #writer.add_scalar('Loss/train/D/gradient_penalty/{}'.format(j), gradient_penalty.item(), iter+1)
             #writer.add_scalar('Loss/train/G/gen', errG.item(), iter+1)
             #writer.add_scalar('Loss/train/G/reconstruction', rec_loss.item(), iter+1)
-            
-            '''
-            if iter % 1 == 0 or iter+1 == opt.niter:
+            '''    
+            if iter % 250 == 0:
                 functions.save_image('{}/fake_sample_a{}.jpg'.format(opt.outf, iter+1), fake_a.detach())
                 functions.save_image('{}/reconstruction_a{}.jpg'.format(opt.outf, iter+1), rec_a.detach())
                 functions.save_image('{}/fake_sample_b{}.jpg'.format(opt.outf, iter+1), fake_b.detach())
                 functions.save_image('{}/reconstruction_b{}.jpg'.format(opt.outf, iter+1), rec_b.detach())
                 functions.save_image('{}/b2a_{}.jpg'.format(opt.outf,iter+1),mix_g_a.detach())
                 functions.save_image('{}/a2b_{}.jpg'.format(opt.outf,iter+1),mix_g_b.detach())
-            '''
+            '''  
             # generate_samples(netG_a, opt, depth, noise_amp, writer, reals, iter+1)
 
             schedulerD.step()
             schedulerG.step()
             # break
+        
+        functions.save_image('{}/fake_sample_a{}.jpg'.format(opt.outf, iter+1), fake_a.detach())
+        functions.save_image('{}/reconstruction_a{}.jpg'.format(opt.outf, iter+1), rec_a.detach())
+        functions.save_image('{}/fake_sample_b{}.jpg'.format(opt.outf, iter+1), fake_b.detach())
+        functions.save_image('{}/reconstruction_b{}.jpg'.format(opt.outf, iter+1), rec_b.detach())
+        functions.save_image('{}/b2a_{}.jpg'.format(opt.outf,iter+1),mix_g_a.detach())
+        functions.save_image('{}/a2b_{}.jpg'.format(opt.outf,iter+1),mix_g_b.detach())
+        functions.save_image('{}/self_a_{}.jpg'.format(opt.outf,iter+1),self_a.detach())
+        functions.save_image('{}/self_b_{}.jpg'.format(opt.outf,iter+1),self_b.detach())
+        functions.save_image('{}/noisy_real_a{}.jpg'.format(opt.outf,iter+1),noisy_real_a[-1].detach())
+        functions.save_image('{}/noisy_real_b{}.jpg'.format(opt.outf,iter+1),noisy_real_b[-1].detach())
+        functions.save_image('{}/other_noise_a{}.jpg'.format(opt.outf,iter+1),other_noise_a[-1].detach())
     print(len(errD_a_plot), len(errG_a_plot))       
     #print("Fakes_a: {}".format([r.shape for r in fakes_a]))
     #print("Fakes_b: {}".format([r.shape for r in fakes_b]))
