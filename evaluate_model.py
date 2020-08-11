@@ -168,8 +168,8 @@ if __name__ == '__main__':
         dataset_a = Video_dataset(opt.video_dir, opt.num_images, opt.vid_ext, opt)
         data_loader_a = DataLoader(dataset_a, shuffle=True,batch_size=1)
         tmp = (r for r in fixed_noise_a)
-        for a in range(6):
-            print("Hình dạng của fixed_noise_a: {}".format(tmp.__next__().shape))
+       # for a in range(6):
+        #    print("Hình dạng của fixed_noise_a: {}".format(tmp.__next__().shape))
 
         beta = 80
         alpha = 0.1
@@ -186,20 +186,24 @@ if __name__ == '__main__':
 
                 #noise = 0.001*noise_random + 0.999* datas
 
-                noise = [0.999* fixed_noise_b[i] + datas[i] for i in range(len(fixed_noise_a))]
+                #noise = [noise_amp_a[i]* fixed_noise_a[i] + datas[i] for i in range(len(fixed_noise_a))]
 
-                functions.save_image('{}/noise{}.jpg'.format(dir2save,i),noise[-1].detach())
-
-                fake_a = netG_a(noise,reals_shapes, noise_amp_b)
+                #functions.save_image('{}/noise{}.jpg'.format(dir2save,i),noise[-1].detach())
+		
+		other_noise = functions.sample_random_noise(len(fixed_noise_a)-1, reals_shapes,opt)
+		noise = [other_noise[i]+datas[i] for i in range(len(other_noise))]
+                functions.save_image('{}/noise_{}.jpg'.format(dir2save,i),noise[-1].detach())
+		
+		fake_a = netG_a(noise,reals_shapes, noise_amp_a)
                 functions.save_image('{}/fake{}.jpg'.format(dir2save,i),fake_a.detach())
 
                 fake_a = functions.adjust_scales2image(fake_a, opt)
                 fakes_a = functions.create_reals_pyramid(fake_a, opt)
                 fakes_a = functions.sample_random_noise_video(fakes_a,reals_shapes, opt)
 
-                mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_b)
+                mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a)
 
-                functions.save_image('{}/b2a_{}.jpg'.format(dir2save,i),mix_g_b.detach())
+                functions.save_image('{}/a2b_{}.jpg'.format(dir2save,i),mix_g_b.detach())
                 i = i + 1
         '''
             z_prev1 = [0.99 * fixed_noise_a[i] + 0.01 * noise_random[i] for i in range(len(fixed_noise_a))]
