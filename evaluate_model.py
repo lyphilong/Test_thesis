@@ -177,7 +177,7 @@ if __name__ == '__main__':
         with torch.no_grad():
             noise_random  = functions.sample_random_noise(len(fixed_noise_a) - 1, reals_shapes, opt)
             for i in range(len(fixed_noise_a)):
-                print("Hình dạng của random noise: {}".format(other_noise[i].shape))
+                print("Hình dạng của random noise: {}".format(noise_random[i].shape))
 
             a = 0
             for data in data_loader_a:  
@@ -189,7 +189,7 @@ if __name__ == '__main__':
                 z_curr = [noise_random[i] + datas[i] for i in range(len(noise_random))]
                 
                 mix_g_b = netG_b(z_curr, reals_shapes, noise_amp_a, is_noise = True)
-                functions.save_image('{}/b2a_{}.jpg'.format(dir2save,i),mix_g_b.detach())
+                functions.save_image('{}/b2a_{}.jpg'.format(dir2save,a),mix_g_b.detach())
                 
                 ################
                 ### Method 2 ###
