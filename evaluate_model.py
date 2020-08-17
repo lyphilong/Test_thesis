@@ -186,9 +186,9 @@ if __name__ == '__main__':
                 ### Method 1 ###
                 ################
                 datas = functions.sample_random_noise_video(data, reals_shapes, opt)
-                z_curr = [noise_random[i] + datas[i] for i in range(len(noise_random))]
+                z_curr = [noise_random[i] + datas[i]*noise_amp_b[i] for i in range(len(noise_random))]
                 
-                mix_g_b = netG_b(z_curr, reals_shapes, noise_amp_a, is_noise = True)
+                mix_g_b = netG_b(z_curr, reals_shapes, noise_amp_b, is_noise = True)
                 functions.save_image('{}/b2a_{}.jpg'.format(dir2save,a),mix_g_b.detach())
                 
                 ################
