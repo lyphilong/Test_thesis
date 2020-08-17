@@ -22,6 +22,23 @@ from pytorch_model_summary import summary
 from thop import profile
 from thop import clever_format
 
+class TVLoss(nn.Module):
+    def __init__(self,TVLoss_weight=1):
+        super(TVLoss,self).__init__()
+        self.TVLoss_weight = TVLoss_weight
+
+    def forward(self,x):
+        batch_size = x.size()[0]
+        h_x = x.size()[2]
+        w_x = x.size()[3]
+        count_h = self._tensor_size(x[:,:,1:,:])
+        count_w = self._tensor_size(x[:,:,:,1:])
+        h_tv = torch.pow((x[:,:,1:,:]-x[:,:,:h_x-1,:]),2).sum()
+        w_tv = torch.pow((x[:,:,:,1:]-x[:,:,:,:w_x-1]),2).sum()
+        return self.TVLoss_weight*2*(h_tv/count_h+w_tv/count_w)/batch_size
+
+    def _tensor_size(self,t):
+        return t.size()[1]*t.size()[2]*t.size()[3]
 
 
 class Video_dataset(Data.Dataset):
@@ -250,6 +267,7 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                 # add parameters of head and tail to training
                 if depth - opt.train_depth < 0:
                     parameter_list_a += [{"params": netG_a.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
+
                     parameter_list_b += [{"params": netG_b.head.parameters(), "lr": opt.lr_g * (opt.lr_scale**depth)}]
                 parameter_list_a += [{"params": netG_a.tail.parameters(), "lr": opt.lr_g}]
                 parameter_list_b += [{"params": netG_b.tail.parameters(), "lr": opt.lr_g}]
@@ -292,7 +310,9 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             ############################
             # (0) sample noise for unconditional generation
             ###########################
-            noise = functions.sample_random_noise(depth, reals_shapes, opt)
+            noise_a = functions.sample_random_noise(depth, reals_shapes, opt)
+            noise_b = functions.sample_random_noise(depth, reals_shapes,opt)
+
 
 
             other_noise_a = functions.sample_random_noise(depth, reals_shapes, opt)
@@ -329,11 +349,13 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
             
             noisy_real_b = [other_noise_a[i] + realss_b[i] for i in range(len(other_noise_a))]
             noisy_real_a = [other_noise_b[i] + realss_a[i] for i in range(len(other_noise_b))]
-            
+           
+            #noise_a = [noise_a[i]*0.1 + realss_a[i]*0.9 for i in range(len(noise_a))]
+            #noise_b = [noise_b[i]*0.1 + realss_b[i]*0.9 for i in range(len(noise_b))] 
 
             if opt.lambda_self > 0.0:
-                self_a = netG_a(noisy_real_b, reals_shapes, noise_amp_b)
-                self_b = netG_b(noisy_real_a, reals_shapes, noise_amp_a)
+                self_a = netG_a(noisy_real_b, reals_shapes, noise_amp_a)
+                self_b = netG_b(noisy_real_a, reals_shapes, noise_amp_b)
                 
             ############################
             # (1) Update D network: maximize D(x) + D(G(z))
@@ -351,10 +373,10 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
 
                 # train with fake
                 if j == opt.Dsteps - 1:
-                    fake_a = netG_a(noise, reals_shapes, noise_amp_a)
+                    fake_a = netG_a(noise_a, reals_shapes, noise_amp_a)
                 else:
                     with torch.no_grad():
-                        fake_a = netG_a(noise, reals_shapes, noise_amp_a)
+                        fake_a = netG_a(noise_a, reals_shapes, noise_amp_a)
             
             
                 #Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ cho fakes a
@@ -364,15 +386,15 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     fakes_a.pop(depth)
                     fakes_a.append(fake_a)
 
-                if (fakes_a[-1].shape[2] != noise[-1].shape[2] or fakes_a[-1].shape[3] != noise[-1].shape[3]):
-                    fakes_a[-1] = torch.nn.functional.interpolate(fakes_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+                if (fakes_a[-1].shape[2] != noise_a[-1].shape[2] or fakes_a[-1].shape[3] != noise_a[-1].shape[3]):
+                    fakes_a[-1] = torch.nn.functional.interpolate(fakes_a[-1], size=[noise_a[-1].shape[2],noise_a[-1].shape[3]], mode='bicubic', align_corners=True)
                     
          
                 if j == opt.Dsteps - 1:
-                    fake_b = netG_b(noise, reals_shapes, noise_amp_b)
+                    fake_b = netG_b(noise_b, reals_shapes, noise_amp_b)
                 else:
                     with torch.no_grad():
-                        fake_b = netG_b(noise, reals_shapes, noise_amp_b)
+                        fake_b = netG_b(noise_b, reals_shapes, noise_amp_b)
 
 
                 #Viết hàm để tránh trường hợp add vào quá nhiều tạo ra tràn bộ nhớ cho fakes a
@@ -382,24 +404,24 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     fakes_b.pop(depth)
                     fakes_b.append(fake_b)
 
-                if (fakes_b[-1].shape[2] != noise[-1].shape[2] or fakes_b[-1].shape[3] != noise[-1].shape[3]):
-                    fakes_b[-1] = torch.nn.functional.interpolate(fakes_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+                if (fakes_b[-1].shape[2] != noise_b[-1].shape[2] or fakes_b[-1].shape[3] != noise_b[-1].shape[3]):
+                    fakes_b[-1] = torch.nn.functional.interpolate(fakes_b[-1], size=[noise_b[-1].shape[2],noise_b[-1].shape[3]], mode='bicubic', align_corners=True)
 
                 if(depth !=0):
-                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_a, is_noise = True)
+                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b, is_noise = True)
                 else:
-                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_a)
+                    mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
 
                 #mix_g_a = netG_a(fakes_b, reals_shapes,noise_amp_b)
                 #mixs_g_a.append(mix_g_a)
                 output_a = netD_a(mix_g_a.detach())
                 output_a2 = netD_a(fake_a.detach())
                 if opt.lambda_self > 0.0:
-                    output_a3 = netD_a(self_a.detach())
+                    output_a3 = netD_a(self_a.detach()).mean()
                 else:
                     output_a3 = 0
 
-                errD_fake_a = output_a.mean() + output_a2.mean() + opt.lambda_self * output_a3.mean()
+                errD_fake_a = output_a.mean() + output_a2.mean() + opt.lambda_self * output_a3
 
                 gradient_penalty_a = functions.calc_gradient_penalty(netD_a, real_a, mix_g_a, opt.lambda_grad, opt.device)
                 gradient_penalty_a += functions.calc_gradient_penalty(netD_a, real_a, fake_a, opt.lambda_grad, opt.device)
@@ -418,8 +440,8 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     mixs_g_a.pop(depth)
                     mixs_g_a.append(mix_g_a)
 
-                if (mixs_g_a[-1].shape[2] != noise[-1].shape[2] or mixs_g_a[-1].shape[3] != noise[-1].shape[3]):
-                    mixs_g_a[-1] = torch.nn.functional.interpolate(mixs_g_a[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+                if (mixs_g_a[-1].shape[2] != noise_a[-1].shape[2] or mixs_g_a[-1].shape[3] != noise_a[-1].shape[3]):
+                    mixs_g_a[-1] = torch.nn.functional.interpolate(mixs_g_a[-1], size=[noise_a[-1].shape[2],noise_a[-1].shape[3]], mode='bicubic', align_corners=True)
 
                 #############################
                 ####      Train D_b      ####
@@ -432,9 +454,9 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
 
                 # train with fake
                 if(depth !=0):
-                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_b,is_noise = True)
+                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a,is_noise = True)
                 else:
-                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_b)
+                    mix_g_b = netG_b(fakes_a, reals_shapes, noise_amp_a)
 
             
                 #mixs_g_b.append(mix_g_b)
@@ -464,8 +486,8 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                     mixs_g_b.pop(depth)
                     mixs_g_b.append(mix_g_b)
             
-                if (mixs_g_b[-1].shape[2] != noise[-1].shape[2] or mixs_g_b[-1].shape[3] != noise[-1].shape[3]):
-                    mixs_g_b[-1] = torch.nn.functional.interpolate(mixs_g_b[-1], size=[noise[-1].shape[2],noise[-1].shape[3]], mode='bicubic', align_corners=True)
+                if (mixs_g_b[-1].shape[2] != noise_b[-1].shape[2] or mixs_g_b[-1].shape[3] != noise_b[-1].shape[3]):
+                    mixs_g_b[-1] = torch.nn.functional.interpolate(mixs_g_b[-1], size=[noise_b[-1].shape[2],noise_b[-1].shape[3]], mode='bicubic', align_corners=True)
     
                 optimizerD.step()
             
@@ -478,22 +500,31 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
         
             output_a = netD_a(mix_g_a)
             output_a2 = netD_a(fake_a)
+
+            if opt.lambda_tv > 0.0:
+                loss_tv = TVLoss()
+                tv_loss_a = opt.lambda_tv*(loss_tv(fake_a) +loss_tv(self_a))
+                tv_loss_b = opt.lambda_tv*(loss_tv(fake_b) + loss_tv(self_b))
+            else:
+                output_tv_a = 0
+                output_tv_b = 0
+
             if opt.lambda_self > 0.0:
                 output_a3 = netD_a(self_a)
                 output_a3 = output_a3.mean()
             else:
                 output_a3 = 0
 
-            errG_a = -output_a.mean() - output_a2.mean() - opt.lambda_self #*output_a3
+            errG_a = -output_a.mean() - output_a2.mean() - opt.lambda_self*output_a3
 
             output_b = netD_b(mix_g_b)
             output_b2 = netD_b(fake_b)
             if opt.lambda_self > 0.0:
-                output_b3 = netD_b(self_a)
+                output_b3 = netD_b(self_b)
                 output_b3 = output_b3.mean()
             else:
                 output_b3 = 0
-            errG_b = -output_b.mean() - output_b2.mean() - opt.lambda_self#*output_a3
+            errG_b = -output_b.mean() - output_b2.mean() - opt.lambda_self*output_b3
 
             #print(len(noise_amp_a))
 
@@ -524,9 +555,9 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
                 cycle_loss_a = 0
                 cycle_loss_b = 0
                 
-            errG_total_a = errG_a + rec_loss_a + cycle_loss_a
+            errG_total_a = errG_a + rec_loss_a + cycle_loss_a + tv_loss_a
             errG_total_a.backward(retain_graph=True)
-            errG_total_b = errG_b + rec_loss_b + cycle_loss_b            
+            errG_total_b = errG_b + rec_loss_b + cycle_loss_b + tv_loss_b
             errG_total_b.backward(retain_graph=True)
 
             for _ in range(opt.Gsteps):
@@ -592,8 +623,9 @@ def train_single_scale(netD_a, netD_b, netG_a, netG_b, data_loader_a, reals_b, f
         functions.save_image('{}/reconstruction_b{}.jpg'.format(opt.outf, iter+1), rec_b.detach())
         functions.save_image('{}/b2a_{}.jpg'.format(opt.outf,iter+1),mix_g_a.detach())
         functions.save_image('{}/a2b_{}.jpg'.format(opt.outf,iter+1),mix_g_b.detach())
-        functions.save_image('{}/self_a_{}.jpg'.format(opt.outf,iter+1),self_a.detach())
-        functions.save_image('{}/self_b_{}.jpg'.format(opt.outf,iter+1),self_b.detach())
+        if (opt.lambda_self >0.0):
+            functions.save_image('{}/self_a_{}.jpg'.format(opt.outf,iter+1),self_a.detach())
+            functions.save_image('{}/self_b_{}.jpg'.format(opt.outf,iter+1),self_b.detach())
         functions.save_image('{}/noisy_real_a{}.jpg'.format(opt.outf,iter+1),noisy_real_a[-1].detach())
         functions.save_image('{}/noisy_real_b{}.jpg'.format(opt.outf,iter+1),noisy_real_b[-1].detach())
         functions.save_image('{}/other_noise_a{}.jpg'.format(opt.outf,iter+1),other_noise_a[-1].detach())
